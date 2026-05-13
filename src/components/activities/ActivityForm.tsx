@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { withBasePath } from "@/lib/paths";
 
 const activitySchema = z.object({
   type: z.enum(["call", "email", "meeting", "note", "follow_up"]),
@@ -52,7 +53,7 @@ export function ActivityForm({
 
   useEffect(() => {
     if (open && !preselectedContactId) {
-      fetch("/api/contacts")
+      fetch(withBasePath("/api/contacts"))
         .then((r) => r.json())
         .then(setContacts);
     }
@@ -78,7 +79,7 @@ export function ActivityForm({
 
   const onSubmit = async (data: ActivityFormData) => {
     try {
-      const res = await fetch("/api/activities", {
+      const res = await fetch(withBasePath("/api/activities"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

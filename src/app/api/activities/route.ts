@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     query = query.where(eq(activities.dealId, dealId)) as typeof query;
   }
 
-  const results = query.orderBy(desc(activities.createdAt)).all();
+  const results = await query.orderBy(desc(activities.createdAt));
   return NextResponse.json(results);
 }
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = db
+    const [result] = await db
       .insert(activities)
       .values({
         type,
@@ -63,8 +63,7 @@ export async function POST(request: NextRequest) {
         completedAt: null,
         createdAt: new Date(),
       })
-      .returning()
-      .get();
+      .returning();
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

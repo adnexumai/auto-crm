@@ -1,0 +1,802 @@
+{
+  "name": "Adnexum - YCloud Inbound (CRM + Chatwoot)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ycloud-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "YCloud Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst type = body.type ?? '';\n\nfunction getContent(msg = {}) {\n  if (msg.text?.body) return msg.text.body;\n  if (msg.image?.caption) return `[imagen] ${msg.image.caption}`;\n  if (msg.image) return '[imagen]';\n  if (msg.video?.caption) return `[video] ${msg.video.caption}`;\n  if (msg.video) return '[video]';\n  if (msg.audio) return '[audio]';\n  if (msg.voice) return '[audio de voz]';\n  if (msg.document?.filename) return `[documento: ${msg.document.filename}]`;\n  if (msg.document) return '[documento]';\n  if (msg.sticker) return '[sticker]';\n  if (msg.reaction?.emoji) return `[reaccion: ${msg.reaction.emoji}]`;\n  return `[${msg.type ?? 'mensaje'}]`;\n}\n\nfunction getMediaUrl(msg = {}) {\n  return msg.audio?.link || msg.voice?.link || msg.image?.link || msg.video?.link || null;\n}\n\nfunction buildResult({ phone, name = '', content, timestamp, mediaUrl = null, msgType = 'text', eventType, syncChatwoot, crmPayload, dedupeKey, direction }) {\n  if (!phone || !dedupeKey) {\n    return [{ json: { skip: true, reason: 'sin phone o dedupeKey' } }];\n  }\n\n  return [{\n    json: {\n      phone,\n      name,\n      content,\n      timestamp: timestamp || new Date().toISOString(),\n      mediaUrl,\n      msgType,\n      eventType,\n      syncChatwoot,\n      crmPayload,\n      dedupeKey,\n      direction\n    }\n  }];\n}\n\nif (type === 'whatsapp.inbound_message.received') {\n  const msg = body.whatsappInboundMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.from ?? '',\n    name: msg.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: true,\n    crmPayload: { type, whatsappInboundMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'incoming'\n  });\n}\n\nif (type === 'whatsapp.smb.message.echoes') {\n  const msg = body.whatsappMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.message.updated') {\n  const msg = body.whatsappMessage ?? {};\n  if (msg.status !== 'sent') {\n    return [{ json: { skip: true, reason: `message.updated ignorado (${msg.status ?? 'sin status'})` } }];\n  }\n\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.smb.history') {\n  const inbound = body.whatsappInboundMessage ?? null;\n  const outbound = body.whatsappMessage ?? null;\n  const msg = inbound ?? outbound ?? {};\n  const phone = inbound?.from ?? outbound?.to ?? '';\n  const timestamp = msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString();\n  const wamid = msg.wamid ?? msg.id ?? '';\n  const direction = inbound ? 'incoming' : 'outgoing';\n  const dedupeKey = wamid || phone ? `history:${direction}:${wamid || phone}:${timestamp}` : '';\n\n  return buildResult({\n    phone,\n    name: inbound?.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp,\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: body,\n    dedupeKey,\n    direction\n  });\n}\n\nreturn [{ json: { skip: true, reason: `tipo no manejado: ${type}` } }];"
+      },
+      "id": "extract-fields",
+      "name": "Extraer campos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-skip",
+      "name": "¿Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.dedupeKey }}",
+        "options": {}
+      },
+      "id": "redis-check-dup",
+      "name": "Redis: ¿Duplicado?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        900,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-dup",
+      "name": "¿Ya procesado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Extraer campos').item.json.dedupeKey }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400,
+        "options": {}
+      },
+      "id": "redis-mark",
+      "name": "Redis: Marcar procesado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://adnexumcrm.vercel.app/api/webhook/ycloud",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-adnexum-forwarded-by",
+              "value": "n8n"
+            },
+            {
+              "name": "x-adnexum-forward-secret",
+              "value": ""
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Extraer campos').item.json.crmPayload }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "crm-webhook",
+      "name": "CRM: Grabar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "sync-chatwoot",
+              "leftValue": "={{ $('Extraer campos').item.json.syncChatwoot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-sync-chatwoot",
+      "name": "¿Sync Chatwoot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Extraer campos').item.json.phone }}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-search-contact",
+      "name": "Chatwoot: Buscar contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        460
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const contacts = $input.first().json.payload ?? [];\nconst source = $('Extraer campos').first().json;\nconst crm = $('CRM: Grabar mensaje').first().json ?? {};\nconst preferredInboxId = 2;\nlet contact = contacts[0] ?? null;\nif (preferredInboxId && contacts.length) {\n  contact = contacts.find((candidate) =>\n    (candidate.contact_inboxes ?? []).some((inboxRef) => Number(inboxRef.inbox?.id) === preferredInboxId)\n  ) ?? contact;\n}\nreturn [{ json: { ...source, prospect: crm.prospecto ?? null, existingContactId: contact?.id ?? null, needCreateContact: !contact } }];"
+      },
+      "id": "decide-contact",
+      "name": "Decidir contacto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-contact",
+              "leftValue": "={{ $json.needCreateContact }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-create-contact",
+      "name": "¿Crear contacto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.name || $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-create-contact",
+      "name": "Chatwoot: Crear contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        360
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/{{ $json.existingContactId }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-list-convs",
+      "name": "Chatwoot: Conversaciones contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        560
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir contacto').first().json;\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = 2;\nconst sorted = [...conversations].sort((a, b) => Number(b.last_activity_at ?? b.id ?? 0) - Number(a.last_activity_at ?? a.id ?? 0));\nconst sameInbox = preferredInboxId ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId) : sorted;\nconst pool = sameInbox.length ? sameInbox : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\nreturn [{ json: { ...source, contactId: source.existingContactId, convId: chosen?.id ?? null, needCreateConversation: !chosen } }];"
+      },
+      "id": "resolve-existing-conv",
+      "name": "Resolver conversacion existente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir contacto').first().json;\nconst created = $input.first().json;\nreturn [{ json: { ...source, contactId: created.id, convId: null, needCreateConversation: true } }];"
+      },
+      "id": "prepare-created-contact",
+      "name": "Preparar contacto creado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-conversation",
+              "leftValue": "={{ $json.needCreateConversation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-create-conv",
+      "name": "¿Crear conversación?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": {{ 2 }},\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-create-conv",
+      "name": "Chatwoot: Crear conversacion",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3320,
+        360
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const createPath = $('Chatwoot: Crear conversacion').all();\nconst fromCreatedContact = $('Preparar contacto creado').all()[0]?.json;\nconst fromExistingConversation = $('Resolver conversacion existente').all()[0]?.json;\nconst current = $input.first().json;\nconst source = fromCreatedContact ?? fromExistingConversation ?? current;\nconst convId = createPath.length > 0 ? createPath[0].json.id : (current.convId ?? source.convId);\nconst prospect = source.prospect ?? {};\nreturn [{ json: { ...source, prospect, prospectId: prospect.id ?? null, convId, labels: ['pipe_respondio', 'temp_tibio'] } }];"
+      },
+      "id": "finalize-conv",
+      "name": "Preparar conversacion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3540,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/{{ $json.convId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.content }}\",\n  \"message_type\": \"incoming\",\n  \"private\": false\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-post-msg",
+      "name": "Chatwoot: Agregar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3760,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/{{ $json.convId }}/labels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"labels\": {{ JSON.stringify($json.labels) }} }",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-set-label",
+      "name": "Chatwoot: Poner etiqueta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3980,
+        520
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "https://adnexumcrm.vercel.app/api/prospeccion/{{ $json.prospectId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.convId }}\" }",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "crm-save-conversation-id",
+      "name": "CRM: Guardar convId",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3980,
+        650
+      ]
+    }
+  ],
+  "connections": {
+    "YCloud Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extraer campos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer campos": {
+      "main": [
+        [
+          {
+            "node": "¿Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Skip?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: ?Duplicado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: ¿Duplicado?": {
+      "main": [
+        [
+          {
+            "node": "¿Ya procesado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Ya procesado?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: Marcar procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Marcar procesado": {
+      "main": [
+        [
+          {
+            "node": "CRM: Grabar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM: Grabar mensaje": {
+      "main": [
+        [
+          {
+            "node": "¿Sync Chatwoot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sync Chatwoot?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Buscar contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Chatwoot: Buscar contacto": {
+      "main": [
+        [
+          {
+            "node": "Decidir contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decidir contacto": {
+      "main": [
+        [
+          {
+            "node": "¿Crear contacto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Crear contacto?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chatwoot: Conversaciones contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear contacto": {
+      "main": [
+        [
+          {
+            "node": "Preparar contacto creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Conversaciones contacto": {
+      "main": [
+        [
+          {
+            "node": "Resolver conversacion existente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contacto creado": {
+      "main": [
+        [
+          {
+            "node": "¿Crear conversación?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Crear conversación?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Agregar mensaje": {
+      "main": []
+    },
+    "Chatwoot: Poner etiqueta": {
+      "main": []
+    },
+    "CRM: Guardar convId": {
+      "main": []
+    },
+    "Chatwoot: Crear conversacion": {
+      "main": [
+        [
+          {
+            "node": "Preparar conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar conversacion": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Agregar mensaje",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Poner etiqueta",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CRM: Guardar convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver conversacion existente": {
+      "main": [
+        [
+          {
+            "node": "¿Crear conversación?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "_comment": {
+    "note": "Workflow inbound limpio: soporta eventos YCloud, deduplica por wamid/history key, manda todo al CRM, sincroniza Chatwoot solo para inbound, guarda chatwootConversationId en el CRM y usa env vars CRM_BASE_URL/CHATWOOT_*."
+  },
+  "id": "7iO7ktMY5P61fitF"
+}

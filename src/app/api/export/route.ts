@@ -27,11 +27,10 @@ export async function GET(request: NextRequest) {
   const today = new Date().toISOString().split("T")[0];
 
   if (type === "contacts") {
-    const allContacts = db
+    const allContacts = await db
       .select()
       .from(contacts)
-      .orderBy(desc(contacts.createdAt))
-      .all();
+      .orderBy(desc(contacts.createdAt));
 
     const headers = [
       "Nombre",
@@ -72,7 +71,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (type === "deals") {
-    const allDeals = db
+    const allDeals = await db
       .select({
         title: deals.title,
         value: deals.value,
@@ -86,8 +85,7 @@ export async function GET(request: NextRequest) {
       .from(deals)
       .leftJoin(contacts, eq(deals.contactId, contacts.id))
       .leftJoin(pipelineStages, eq(deals.stageId, pipelineStages.id))
-      .orderBy(asc(pipelineStages.order))
-      .all();
+      .orderBy(asc(pipelineStages.order));
 
     const headers = [
       "Titulo",

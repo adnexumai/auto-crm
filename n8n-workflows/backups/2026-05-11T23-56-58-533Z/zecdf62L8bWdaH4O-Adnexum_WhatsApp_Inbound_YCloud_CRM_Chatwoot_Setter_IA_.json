@@ -1,0 +1,2542 @@
+{
+  "updatedAt": "2026-04-23T17:15:36.387Z",
+  "createdAt": "2026-04-23T17:11:03.911Z",
+  "id": "zecdf62L8bWdaH4O",
+  "name": "Adnexum — WhatsApp Inbound (YCloud → CRM + Chatwoot + Setter IA)",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "adnexum-whatsapp-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b8b611a6-b49a-41a1-bc07-8d91a2d2bbfd",
+      "name": "YCloud Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        128
+      ],
+      "webhookId": "03d16539-5601-4dfb-ab34-68c77b691201"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "daf3461b-b7ae-4a66-b851-2574de2fce95",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer campos relevantes y definir qué camino sigue cada evento\nconst body = $input.first().json.body ?? $input.first().json;\nconst type = body.type ?? '';\n\nfunction getContent(msg = {}) {\n  if (msg.text?.body) return msg.text.body;\n  if (msg.image?.caption) return `[imagen] ${msg.image.caption}`;\n  if (msg.image) return '[imagen]';\n  if (msg.video?.caption) return `[video] ${msg.video.caption}`;\n  if (msg.video) return '[video]';\n  if (msg.audio) return '[audio]';\n  if (msg.voice) return '[audio de voz]';\n  if (msg.document?.filename) return `[documento: ${msg.document.filename}]`;\n  if (msg.document) return '[documento]';\n  if (msg.sticker) return '[sticker]';\n  if (msg.reaction?.emoji) return `[reaccion: ${msg.reaction.emoji}]`;\n  return `[${msg.type ?? 'mensaje'}]`;\n}\n\nfunction getMediaUrl(msg = {}) {\n  return msg.audio?.link || msg.voice?.link || msg.image?.link || msg.video?.link || null;\n}\n\nfunction buildResult({ phone, name = '', content, timestamp, mediaUrl = null, msgType = 'text', eventType, syncChatwoot, crmPayload, dedupeKey, direction }) {\n  if (!phone || !dedupeKey) {\n    return [{ json: { skip: true, reason: 'sin phone o dedupeKey' } }];\n  }\n\n  return [{\n    json: {\n      phone,\n      name,\n      content,\n      timestamp: timestamp || new Date().toISOString(),\n      mediaUrl,\n      msgType,\n      eventType,\n      syncChatwoot,\n      crmPayload,\n      dedupeKey,\n      direction\n    }\n  }];\n}\n\nif (type === 'whatsapp.inbound_message.received') {\n  const msg = body.whatsappInboundMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.from ?? '',\n    name: msg.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: true,\n    crmPayload: { type, whatsappInboundMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'incoming'\n  });\n}\n\nif (type === 'whatsapp.smb.message.echoes') {\n  const msg = body.whatsappMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.message.updated') {\n  const msg = body.whatsappMessage ?? {};\n  if (msg.status !== 'sent') {\n    return [{ json: { skip: true, reason: `message.updated ignorado (${msg.status ?? 'sin status'})` } }];\n  }\n\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.smb.history') {\n  const inbound = body.whatsappInboundMessage ?? null;\n  const outbound = body.whatsappMessage ?? null;\n  const msg = inbound ?? outbound ?? {};\n  const phone = inbound?.from ?? outbound?.to ?? '';\n  const timestamp = msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString();\n  const wamid = msg.wamid ?? msg.id ?? '';\n  const direction = inbound ? 'incoming' : 'outgoing';\n  const dedupeKey = wamid || phone ? `history:${direction}:${wamid || phone}:${timestamp}` : '';\n\n  return buildResult({\n    phone,\n    name: inbound?.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp,\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: body,\n    dedupeKey,\n    direction\n  });\n}\n\nreturn [{ json: { skip: true, reason: `tipo no manejado: ${type}` } }];"
+      },
+      "id": "dca4b4ef-225c-46b0-b2df-5cfc5d1b3dd7",
+      "name": "Extraer campos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a60ba3da-8f7f-45c5-bd6b-f5f04976aa50",
+      "name": "¿Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        224,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.dedupeKey }}",
+        "options": {}
+      },
+      "id": "40b8a2da-c024-45bc-bd32-143c3ba6071b",
+      "name": "Redis: ¿Duplicado?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        448,
+        208
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bc945ba8-eab0-4564-8a63-94f40d40db10",
+      "name": "¿Ya procesado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Extraer campos').item.json.dedupeKey }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "cf1a30f4-66de-4d3f-99c8-adb19570cde9",
+      "name": "Redis: Marcar procesado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        880,
+        288
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_BASE_URL }}/api/webhook/ycloud",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-adnexum-forwarded-by",
+              "value": "n8n"
+            },
+            {
+              "name": "x-adnexum-forward-secret",
+              "value": "={{ $env.N8N_FORWARD_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Extraer campos').item.json.crmPayload }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "1a9896e3-809e-4c55-a0cf-9b10b6cbff26",
+      "name": "CRM: Grabar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion?search={{ encodeURIComponent($('Extraer campos').item.json.phone) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "74d0a1a5-1e7a-41cb-aad3-537c719b9461",
+      "name": "CRM: Obtener prospecto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer primer resultado\nconst data = $input.first().json;\nconst items = data.items ?? [];\nconst prospect = items[0] ?? null;\nif (!prospect) {\n  return [{ json: { noProspect: true } }];\n}\nreturn [{ json: { prospect } }];"
+      },
+      "id": "9e370009-bc42-47e6-a218-0cfbfbf0ab39",
+      "name": "Extraer prospecto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "sync-chatwoot",
+              "leftValue": "={{ $('Extraer campos').item.json.syncChatwoot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3d4ce8aa-120b-4c6c-98f7-1aa9b7b7c846",
+      "name": "¿Sync Chatwoot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Extraer campos').item.json.phone }}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "ed3485c9-7822-4a6f-bf06-64e0239702ed",
+      "name": "Chatwoot: Buscar contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const search = $input.first().json;\nconst contacts = search.payload ?? [];\nconst prospect = $('Extraer prospecto').first().json.prospect;\nconst phone = $('Extraer campos').first().json.phone;\nconst name = $('Extraer campos').first().json.name;\nconst content = $('Extraer campos').first().json.content;\nconst msgType = $('Extraer campos').first().json.msgType;\n\nlet existingContactId = null;\nlet existingConvId = prospect?.chatwootConversationId ?? null;\n\nif (contacts.length > 0) {\n  existingContactId = contacts[0].id;\n}\n\nreturn [{\n  json: {\n    phone,\n    name,\n    content,\n    msgType,\n    prospect,\n    existingContactId,\n    existingConvId: existingConvId || null,\n    contactId: existingContactId,\n    convId: existingConvId || null,\n    needCreateContact: !existingContactId && !existingConvId,\n    needLookupConversation: !!existingContactId && !existingConvId\n  }\n}];"
+      },
+      "id": "c550f9b7-2c24-4f1d-90df-32f93cd10a21",
+      "name": "Decidir Chatwoot flow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-contact",
+              "leftValue": "={{ $json.needCreateContact }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "31886c2b-b0fa-4d09-a83b-1872e29351ac",
+      "name": "¿Crear contacto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.name || $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+        "options": {}
+      },
+      "id": "a88e67ed-8beb-41ff-9a2d-aae370b972ab",
+      "name": "Chatwoot: Crear contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": {{ $env.CHATWOOT_INBOX_ID }},\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+        "options": {}
+      },
+      "id": "97a2a1f4-77cd-4fba-97b2-ac776a200fcc",
+      "name": "Chatwoot: Crear conversación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3312,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $input.first().json;\nconst createdConversation = $('Chatwoot: Crear conversación').all();\nconst convId = createdConversation.length > 0\n  ? createdConversation[0].json.id\n  : (source.convId ?? source.existingConvId ?? null);\n\nif (!convId) {\n  return [];\n}\n\nconst prospect = source.prospect ?? {};\nconst phone = source.phone ?? $('Extraer campos').first().json.phone;\nconst name = source.name ?? $('Extraer campos').first().json.name;\nconst content = source.content ?? $('Extraer campos').first().json.content;\n\nreturn [{\n  json: {\n    convId,\n    contactId: source.contactId ?? source.existingContactId ?? null,\n    prospectId: prospect.id ?? null,\n    prospectPhone: phone,\n    phone,\n    name,\n    content,\n    estado: prospect.estado ?? 'enviado',\n    score: prospect.oportunidadScore ?? 0,\n    resumenIa: prospect.resumenIa ?? ''\n  }\n}];"
+      },
+      "id": "a8792736-ebc2-4c5c-a424-99faca7eda4b",
+      "name": "Unificar convId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3520,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion/{{ $json.prospectId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.convId }}\" }",
+        "options": {}
+      },
+      "id": "25b08727-9828-41c5-a83a-139edd13fba0",
+      "name": "CRM: Guardar convId",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3744,
+        144
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.content }}\",\n  \"message_type\": \"incoming\",\n  \"private\": false\n}",
+        "options": {}
+      },
+      "id": "0dd8b919-cbd8-4d8b-b5da-e6bf20f087f6",
+      "name": "Chatwoot: Agregar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3744,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Etiqueta según estado CRM\nconst ESTADO_LABEL = {\n  enviado: 'prospecto-nuevo',\n  contactado: 'contactado',\n  respondio: 'respondio',\n  agendado: 'llamada-agendada',\n  seguimiento: 'en-seguimiento',\n  cerrado_positivo: 'cliente',\n  cerrado_negativo: 'descartado'\n};\nconst estado = $json.estado ?? 'enviado';\nconst label = ESTADO_LABEL[estado] ?? 'prospecto-nuevo';\nreturn [{ json: { ...$json, label } }];"
+      },
+      "id": "fdcb375c-1ab5-43ae-9c39-ea20dd7f5e59",
+      "name": "Mapear etiqueta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/labels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"labels\": [\"{{ $json.label }}\"] }",
+        "options": {}
+      },
+      "id": "1d4a454c-f2f7-4ae1-81cc-bed987aa3e2c",
+      "name": "Chatwoot: Poner etiqueta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3520,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "setter-cond",
+              "leftValue": "={{ $env.ENABLE_SETTER_IA === 'true' && $json.estado !== 'cerrado_positivo' && $json.estado !== 'cerrado_negativo' && $json.score < 8 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3a122e77-9c16-47ad-911b-eec1281f8fe8",
+      "name": "¿Aplicar setter IA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3744,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=setter-rate:{{ $json.phone }}",
+        "options": {}
+      },
+      "id": "616a2288-4f0e-4690-a69b-ec476a2cd6cb",
+      "name": "Redis: Rate limit setter",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        3968,
+        208
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "rate-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "1c6bb253-1e65-4d49-8d7e-f1e9a88d177a",
+      "name": "¿Puede responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4192,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "Sos el setter de Adnexum, agencia de automatización e IA B2B en Argentina.\nTu objetivo: calificar prospectos, despertar interés y agendar una llamada de descubrimiento con Tomás.\n\nProceso de ventas Adnexum:\n1. Elevar nivel de conciencia (identificar problema de automatización)\n2. Enviar documento A→B personalizado\n3. Agendar llamada de descubrimiento (30 min)\n4. Pre-llamada: recordatorio + show-up rate\n5. Llamada con guión de diagnóstico\n6. Análisis ROI + costo de oportunidad\n7. Llamada de venta (PsycoSelling)\n8. Contrato\n\nReglas:\n- Mensajes cortos, 1-2 líneas máximo\n- Tono argentino, directo, sin emojis en exceso\n- Si preguntan precios: \"Depende del proceso que diseñemos juntos, ¿tenés 20 minutos para contarme más del negocio?\"\n- Si el prospecto respondió con interés: proponer llamada directamente\n- Si el mensaje es spam/irrelevante/bot: responder exactamente NO_RESPONDER\n- Si el score es menor a 4: responder exactamente NO_RESPONDER\n\nRespondé SOLO con el mensaje a enviar o con NO_RESPONDER. Sin explicaciones.",
+              "role": "system"
+            },
+            {
+              "content": "=Negocio: {{ $('Unificar convId').first().json.resumenIa || 'desconocido' }}\nEstado: {{ $('Unificar convId').first().json.estado }}\nScore: {{ $('Unificar convId').first().json.score }}/10\nÚltimo mensaje recibido: {{ $('Extraer campos').first().json.content }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200
+        }
+      },
+      "id": "e2e12cff-1b08-403f-8790-561e3711be58",
+      "name": "OpenAI: Setter IA",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [
+        4288,
+        16
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "fnEvde2oStMnbGHk",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "no-responder",
+              "leftValue": "={{ $json.message.content }}",
+              "rightValue": "NO_RESPONDER",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "48064015-2421-43de-b572-5ef071a5c0ae",
+      "name": "¿Responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4624,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Delay aleatorio humanizado (1-4 segundos)\nconst delay = Math.floor(1000 + Math.random() * 3000);\nawait new Promise(r => setTimeout(r, delay));\nreturn $input.all();"
+      },
+      "id": "c2efbe18-3947-4e62-9ed2-3f3cc6bfb4f6",
+      "name": "Delay random",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4848,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.YCLOUD_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Extraer campos').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\" }\n}",
+        "options": {}
+      },
+      "id": "5a22941b-cf78-4461-b8df-1f6f98fe9499",
+      "name": "YCloud: Enviar respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5072,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=setter-rate:{{ $('Extraer campos').first().json.phone }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 7200
+      },
+      "id": "c643e955-0aa5-4fd9-88fa-4e2aab20d911",
+      "name": "Redis: Marcar enviado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        5280,
+        48
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Unificar convId').first().json.convId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\",\n  \"message_type\": \"outgoing\",\n  \"private\": false\n}",
+        "options": {}
+      },
+      "id": "344fbe68-cb40-4151-a6d8-8f3c5d28f364",
+      "name": "Chatwoot: Registrar saliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5504,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/{{ $json.existingContactId }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "a041c5b3-2ce3-4469-b362-e5dc4fca391b",
+      "name": "Chatwoot: Conversaciones contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2640,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-lookup-conversation",
+              "leftValue": "={{ $json.needLookupConversation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "507ac6c8-bfcd-4ca3-96b5-708e3b37d542",
+      "name": "Check: Buscar conversaciones",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2432,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\n\nif (source.existingConvId) {\n  return [{\n    json: {\n      ...source,\n      contactId: source.existingContactId ?? source.contactId ?? null,\n      convId: source.existingConvId,\n      needCreateConversation: false\n    }\n  }];\n}\n\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = Number($env.CHATWOOT_INBOX_ID || 0);\nconst sorted = [...conversations].sort((a, b) => Number(b.last_activity_at ?? b.updated_at ?? b.id ?? 0) - Number(a.last_activity_at ?? a.updated_at ?? a.id ?? 0));\nconst preferred = preferredInboxId ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId) : sorted;\nconst pool = preferred.length ? preferred : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: source.existingContactId ?? source.contactId ?? null,\n    convId: chosen?.id ?? null,\n    needCreateConversation: !chosen\n  }\n}];"
+      },
+      "id": "c25f7494-e107-4d7f-95e0-bcbb2446f374",
+      "name": "Resolver conversacion existente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\nconst created = $input.first().json;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: created.id,\n    convId: null,\n    needCreateConversation: true\n  }\n}];"
+      },
+      "id": "8bcb5603-47a6-431d-a906-f54e186bc9fa",
+      "name": "Preparar contacto creado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-conversation",
+              "leftValue": "={{ $json.needCreateConversation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "841122c8-c5a4-49b8-b78c-9ca1b9dcd367",
+      "name": "Check: Crear conversacion",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3088,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "YCloud Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extraer campos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer campos": {
+      "main": [
+        [
+          {
+            "node": "¿Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Skip?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: ¿Duplicado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: ¿Duplicado?": {
+      "main": [
+        [
+          {
+            "node": "¿Ya procesado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Ya procesado?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: Marcar procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Marcar procesado": {
+      "main": [
+        [
+          {
+            "node": "CRM: Grabar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM: Grabar mensaje": {
+      "main": [
+        [
+          {
+            "node": "CRM: Obtener prospecto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM: Obtener prospecto": {
+      "main": [
+        [
+          {
+            "node": "Extraer prospecto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer prospecto": {
+      "main": [
+        [
+          {
+            "node": "¿Sync Chatwoot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sync Chatwoot?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Buscar contacto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Buscar contacto": {
+      "main": [
+        [
+          {
+            "node": "Decidir Chatwoot flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decidir Chatwoot flow": {
+      "main": [
+        [
+          {
+            "node": "¿Crear contacto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Crear contacto?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check: Buscar conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear contacto": {
+      "main": [
+        [
+          {
+            "node": "Preparar contacto creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear conversación": {
+      "main": [
+        [
+          {
+            "node": "Unificar convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unificar convId": {
+      "main": [
+        [
+          {
+            "node": "CRM: Guardar convId",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Agregar mensaje",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mapear etiqueta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear etiqueta": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Poner etiqueta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Poner etiqueta": {
+      "main": [
+        [
+          {
+            "node": "¿Aplicar setter IA?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Aplicar setter IA?": {
+      "main": [
+        [
+          {
+            "node": "Redis: Rate limit setter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Rate limit setter": {
+      "main": [
+        [
+          {
+            "node": "¿Puede responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Puede responder?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Setter IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Setter IA": {
+      "main": [
+        [
+          {
+            "node": "¿Responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Responder?": {
+      "main": [
+        [
+          {
+            "node": "Delay random",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delay random": {
+      "main": [
+        [
+          {
+            "node": "YCloud: Enviar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YCloud: Enviar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Redis: Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Marcar enviado": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Registrar saliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Conversaciones contacto": {
+      "main": [
+        [
+          {
+            "node": "Resolver conversacion existente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contacto creado": {
+      "main": [
+        [
+          {
+            "node": "Check: Crear conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Buscar conversaciones": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Conversaciones contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolver conversacion existente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver conversacion existente": {
+      "main": [
+        [
+          {
+            "node": "Check: Crear conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Crear conversacion": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear conversación",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unificar convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "be4d45d0-0ba7-44a3-8b98-c604317c7b51",
+  "activeVersionId": "be4d45d0-0ba7-44a3-8b98-c604317c7b51",
+  "versionCounter": 10,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-23T17:11:03.911Z",
+      "createdAt": "2026-04-23T17:11:03.911Z",
+      "role": "workflow:owner",
+      "workflowId": "zecdf62L8bWdaH4O",
+      "projectId": "DPsoqujzvQy2wZdN",
+      "project": {
+        "updatedAt": "2026-04-07T15:10:16.121Z",
+        "createdAt": "2026-04-07T15:03:54.833Z",
+        "id": "DPsoqujzvQy2wZdN",
+        "name": "Tomas Bravo <adnexum.net@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-23T17:15:41.268Z",
+    "createdAt": "2026-04-23T17:15:36.388Z",
+    "versionId": "be4d45d0-0ba7-44a3-8b98-c604317c7b51",
+    "workflowId": "zecdf62L8bWdaH4O",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "adnexum-whatsapp-inbound",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "b8b611a6-b49a-41a1-bc07-8d91a2d2bbfd",
+        "name": "YCloud Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          -224,
+          128
+        ],
+        "webhookId": "03d16539-5601-4dfb-ab34-68c77b691201"
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "OK",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "daf3461b-b7ae-4a66-b851-2574de2fce95",
+        "name": "ACK 200",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extraer campos relevantes y definir qué camino sigue cada evento\nconst body = $input.first().json.body ?? $input.first().json;\nconst type = body.type ?? '';\n\nfunction getContent(msg = {}) {\n  if (msg.text?.body) return msg.text.body;\n  if (msg.image?.caption) return `[imagen] ${msg.image.caption}`;\n  if (msg.image) return '[imagen]';\n  if (msg.video?.caption) return `[video] ${msg.video.caption}`;\n  if (msg.video) return '[video]';\n  if (msg.audio) return '[audio]';\n  if (msg.voice) return '[audio de voz]';\n  if (msg.document?.filename) return `[documento: ${msg.document.filename}]`;\n  if (msg.document) return '[documento]';\n  if (msg.sticker) return '[sticker]';\n  if (msg.reaction?.emoji) return `[reaccion: ${msg.reaction.emoji}]`;\n  return `[${msg.type ?? 'mensaje'}]`;\n}\n\nfunction getMediaUrl(msg = {}) {\n  return msg.audio?.link || msg.voice?.link || msg.image?.link || msg.video?.link || null;\n}\n\nfunction buildResult({ phone, name = '', content, timestamp, mediaUrl = null, msgType = 'text', eventType, syncChatwoot, crmPayload, dedupeKey, direction }) {\n  if (!phone || !dedupeKey) {\n    return [{ json: { skip: true, reason: 'sin phone o dedupeKey' } }];\n  }\n\n  return [{\n    json: {\n      phone,\n      name,\n      content,\n      timestamp: timestamp || new Date().toISOString(),\n      mediaUrl,\n      msgType,\n      eventType,\n      syncChatwoot,\n      crmPayload,\n      dedupeKey,\n      direction\n    }\n  }];\n}\n\nif (type === 'whatsapp.inbound_message.received') {\n  const msg = body.whatsappInboundMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.from ?? '',\n    name: msg.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: true,\n    crmPayload: { type, whatsappInboundMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'incoming'\n  });\n}\n\nif (type === 'whatsapp.smb.message.echoes') {\n  const msg = body.whatsappMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.message.updated') {\n  const msg = body.whatsappMessage ?? {};\n  if (msg.status !== 'sent') {\n    return [{ json: { skip: true, reason: `message.updated ignorado (${msg.status ?? 'sin status'})` } }];\n  }\n\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.smb.history') {\n  const inbound = body.whatsappInboundMessage ?? null;\n  const outbound = body.whatsappMessage ?? null;\n  const msg = inbound ?? outbound ?? {};\n  const phone = inbound?.from ?? outbound?.to ?? '';\n  const timestamp = msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString();\n  const wamid = msg.wamid ?? msg.id ?? '';\n  const direction = inbound ? 'incoming' : 'outgoing';\n  const dedupeKey = wamid || phone ? `history:${direction}:${wamid || phone}:${timestamp}` : '';\n\n  return buildResult({\n    phone,\n    name: inbound?.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp,\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: body,\n    dedupeKey,\n    direction\n  });\n}\n\nreturn [{ json: { skip: true, reason: `tipo no manejado: ${type}` } }];"
+        },
+        "id": "dca4b4ef-225c-46b0-b2df-5cfc5d1b3dd7",
+        "name": "Extraer campos",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          0,
+          128
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "skip-check",
+                "leftValue": "={{ $json.skip }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "a60ba3da-8f7f-45c5-bd6b-f5f04976aa50",
+        "name": "¿Skip?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          224,
+          128
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "key": "={{ $json.dedupeKey }}",
+          "options": {}
+        },
+        "id": "40b8a2da-c024-45bc-bd32-143c3ba6071b",
+        "name": "Redis: ¿Duplicado?",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          448,
+          208
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "dup-check",
+                "leftValue": "={{ $json.value }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "bc945ba8-eab0-4564-8a63-94f40d40db10",
+        "name": "¿Ya procesado?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          672,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "set",
+          "key": "={{ $('Extraer campos').item.json.dedupeKey }}",
+          "value": "1",
+          "keyType": "string",
+          "expire": true,
+          "ttl": 86400
+        },
+        "id": "cf1a30f4-66de-4d3f-99c8-adb19570cde9",
+        "name": "Redis: Marcar procesado",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          880,
+          288
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CRM_BASE_URL }}/api/webhook/ycloud",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "x-adnexum-forwarded-by",
+                "value": "n8n"
+              },
+              {
+                "name": "x-adnexum-forward-secret",
+                "value": "={{ $env.N8N_FORWARD_SECRET }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $('Extraer campos').item.json.crmPayload }}",
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "id": "1a9896e3-809e-4c55-a0cf-9b10b6cbff26",
+        "name": "CRM: Grabar mensaje",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1104,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion?search={{ encodeURIComponent($('Extraer campos').item.json.phone) }}",
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "id": "74d0a1a5-1e7a-41cb-aad3-537c719b9461",
+        "name": "CRM: Obtener prospecto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1328,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Extraer primer resultado\nconst data = $input.first().json;\nconst items = data.items ?? [];\nconst prospect = items[0] ?? null;\nif (!prospect) {\n  return [{ json: { noProspect: true } }];\n}\nreturn [{ json: { prospect } }];"
+        },
+        "id": "9e370009-bc42-47e6-a218-0cfbfbf0ab39",
+        "name": "Extraer prospecto",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1552,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "sync-chatwoot",
+                "leftValue": "={{ $('Extraer campos').item.json.syncChatwoot }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "3d4ce8aa-120b-4c6c-98f7-1aa9b7b7c846",
+        "name": "¿Sync Chatwoot?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1760,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/search",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "q",
+                "value": "={{ $('Extraer campos').item.json.phone }}"
+              },
+              {
+                "name": "page",
+                "value": "1"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "id": "ed3485c9-7822-4a6f-bf06-64e0239702ed",
+        "name": "Chatwoot: Buscar contacto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1760,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const search = $input.first().json;\nconst contacts = search.payload ?? [];\nconst prospect = $('Extraer prospecto').first().json.prospect;\nconst phone = $('Extraer campos').first().json.phone;\nconst name = $('Extraer campos').first().json.name;\nconst content = $('Extraer campos').first().json.content;\nconst msgType = $('Extraer campos').first().json.msgType;\n\nlet existingContactId = null;\nlet existingConvId = prospect?.chatwootConversationId ?? null;\n\nif (contacts.length > 0) {\n  existingContactId = contacts[0].id;\n}\n\nreturn [{\n  json: {\n    phone,\n    name,\n    content,\n    msgType,\n    prospect,\n    existingContactId,\n    existingConvId: existingConvId || null,\n    contactId: existingContactId,\n    convId: existingConvId || null,\n    needCreateContact: !existingContactId && !existingConvId,\n    needLookupConversation: !!existingContactId && !existingConvId\n  }\n}];"
+        },
+        "id": "c550f9b7-2c24-4f1d-90df-32f93cd10a21",
+        "name": "Decidir Chatwoot flow",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1984,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "need-contact",
+                "leftValue": "={{ $json.needCreateContact }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "31886c2b-b0fa-4d09-a83b-1872e29351ac",
+        "name": "¿Crear contacto?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2208,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"name\": \"{{ $json.name || $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+          "options": {}
+        },
+        "id": "a88e67ed-8beb-41ff-9a2d-aae370b972ab",
+        "name": "Chatwoot: Crear contacto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2432,
+          128
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"inbox_id\": {{ $env.CHATWOOT_INBOX_ID }},\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+          "options": {}
+        },
+        "id": "97a2a1f4-77cd-4fba-97b2-ac776a200fcc",
+        "name": "Chatwoot: Crear conversación",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3312,
+          144
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const source = $input.first().json;\nconst createdConversation = $('Chatwoot: Crear conversación').all();\nconst convId = createdConversation.length > 0\n  ? createdConversation[0].json.id\n  : (source.convId ?? source.existingConvId ?? null);\n\nif (!convId) {\n  return [];\n}\n\nconst prospect = source.prospect ?? {};\nconst phone = source.phone ?? $('Extraer campos').first().json.phone;\nconst name = source.name ?? $('Extraer campos').first().json.name;\nconst content = source.content ?? $('Extraer campos').first().json.content;\n\nreturn [{\n  json: {\n    convId,\n    contactId: source.contactId ?? source.existingContactId ?? null,\n    prospectId: prospect.id ?? null,\n    prospectPhone: phone,\n    phone,\n    name,\n    content,\n    estado: prospect.estado ?? 'enviado',\n    score: prospect.oportunidadScore ?? 0,\n    resumenIa: prospect.resumenIa ?? ''\n  }\n}];"
+        },
+        "id": "a8792736-ebc2-4c5c-a424-99faca7eda4b",
+        "name": "Unificar convId",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3520,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion/{{ $json.prospectId }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.convId }}\" }",
+          "options": {}
+        },
+        "id": "25b08727-9828-41c5-a83a-139edd13fba0",
+        "name": "CRM: Guardar convId",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3744,
+          144
+        ],
+        "executeOnce": false
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"content\": \"{{ $json.content }}\",\n  \"message_type\": \"incoming\",\n  \"private\": false\n}",
+          "options": {}
+        },
+        "id": "0dd8b919-cbd8-4d8b-b5da-e6bf20f087f6",
+        "name": "Chatwoot: Agregar mensaje",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3744,
+          384
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Etiqueta según estado CRM\nconst ESTADO_LABEL = {\n  enviado: 'prospecto-nuevo',\n  contactado: 'contactado',\n  respondio: 'respondio',\n  agendado: 'llamada-agendada',\n  seguimiento: 'en-seguimiento',\n  cerrado_positivo: 'cliente',\n  cerrado_negativo: 'descartado'\n};\nconst estado = $json.estado ?? 'enviado';\nconst label = ESTADO_LABEL[estado] ?? 'prospecto-nuevo';\nreturn [{ json: { ...$json, label } }];"
+        },
+        "id": "fdcb375c-1ab5-43ae-9c39-ea20dd7f5e59",
+        "name": "Mapear etiqueta",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          3312,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/labels",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={ \"labels\": [\"{{ $json.label }}\"] }",
+          "options": {}
+        },
+        "id": "1d4a454c-f2f7-4ae1-81cc-bed987aa3e2c",
+        "name": "Chatwoot: Poner etiqueta",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3520,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "setter-cond",
+                "leftValue": "={{ $env.ENABLE_SETTER_IA === 'true' && $json.estado !== 'cerrado_positivo' && $json.estado !== 'cerrado_negativo' && $json.score < 8 }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "3a122e77-9c16-47ad-911b-eec1281f8fe8",
+        "name": "¿Aplicar setter IA?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          3744,
+          288
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "key": "=setter-rate:{{ $json.phone }}",
+          "options": {}
+        },
+        "id": "616a2288-4f0e-4690-a69b-ec476a2cd6cb",
+        "name": "Redis: Rate limit setter",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          3968,
+          208
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "rate-check",
+                "leftValue": "={{ $json.value }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "empty"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "1c6bb253-1e65-4d49-8d7e-f1e9a88d177a",
+        "name": "¿Puede responder?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          4192,
+          208
+        ]
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "value": "gpt-4.1-mini",
+            "mode": "list",
+            "cachedResultName": "GPT-4.1-MINI"
+          },
+          "messages": {
+            "values": [
+              {
+                "content": "Sos el setter de Adnexum, agencia de automatización e IA B2B en Argentina.\nTu objetivo: calificar prospectos, despertar interés y agendar una llamada de descubrimiento con Tomás.\n\nProceso de ventas Adnexum:\n1. Elevar nivel de conciencia (identificar problema de automatización)\n2. Enviar documento A→B personalizado\n3. Agendar llamada de descubrimiento (30 min)\n4. Pre-llamada: recordatorio + show-up rate\n5. Llamada con guión de diagnóstico\n6. Análisis ROI + costo de oportunidad\n7. Llamada de venta (PsycoSelling)\n8. Contrato\n\nReglas:\n- Mensajes cortos, 1-2 líneas máximo\n- Tono argentino, directo, sin emojis en exceso\n- Si preguntan precios: \"Depende del proceso que diseñemos juntos, ¿tenés 20 minutos para contarme más del negocio?\"\n- Si el prospecto respondió con interés: proponer llamada directamente\n- Si el mensaje es spam/irrelevante/bot: responder exactamente NO_RESPONDER\n- Si el score es menor a 4: responder exactamente NO_RESPONDER\n\nRespondé SOLO con el mensaje a enviar o con NO_RESPONDER. Sin explicaciones.",
+                "role": "system"
+              },
+              {
+                "content": "=Negocio: {{ $('Unificar convId').first().json.resumenIa || 'desconocido' }}\nEstado: {{ $('Unificar convId').first().json.estado }}\nScore: {{ $('Unificar convId').first().json.score }}/10\nÚltimo mensaje recibido: {{ $('Extraer campos').first().json.content }}"
+              }
+            ]
+          },
+          "options": {
+            "maxTokens": 200
+          }
+        },
+        "id": "e2e12cff-1b08-403f-8790-561e3711be58",
+        "name": "OpenAI: Setter IA",
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 1.4,
+        "position": [
+          4288,
+          16
+        ],
+        "credentials": {
+          "openAiApi": {
+            "id": "fnEvde2oStMnbGHk",
+            "name": "OpenAI account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "no-responder",
+                "leftValue": "={{ $json.message.content }}",
+                "rightValue": "NO_RESPONDER",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEquals"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "48064015-2421-43de-b572-5ef071a5c0ae",
+        "name": "¿Responder?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          4624,
+          128
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Delay aleatorio humanizado (1-4 segundos)\nconst delay = Math.floor(1000 + Math.random() * 3000);\nawait new Promise(r => setTimeout(r, delay));\nreturn $input.all();"
+        },
+        "id": "c2efbe18-3947-4e62-9ed2-3f3cc6bfb4f6",
+        "name": "Delay random",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          4848,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.ycloud.com/v2/whatsapp/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "X-API-Key",
+                "value": "={{ $env.YCLOUD_API_KEY }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"to\": \"{{ $('Extraer campos').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\" }\n}",
+          "options": {}
+        },
+        "id": "5a22941b-cf78-4461-b8df-1f6f98fe9499",
+        "name": "YCloud: Enviar respuesta",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          5072,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "set",
+          "key": "=setter-rate:{{ $('Extraer campos').first().json.phone }}",
+          "value": "1",
+          "keyType": "string",
+          "expire": true,
+          "ttl": 7200
+        },
+        "id": "c643e955-0aa5-4fd9-88fa-4e2aab20d911",
+        "name": "Redis: Marcar enviado",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          5280,
+          48
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Unificar convId').first().json.convId }}/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"content\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\",\n  \"message_type\": \"outgoing\",\n  \"private\": false\n}",
+          "options": {}
+        },
+        "id": "344fbe68-cb40-4151-a6d8-8f3c5d28f364",
+        "name": "Chatwoot: Registrar saliente",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          5504,
+          48
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/{{ $json.existingContactId }}/conversations",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "api_access_token",
+                "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "id": "a041c5b3-2ce3-4469-b362-e5dc4fca391b",
+        "name": "Chatwoot: Conversaciones contacto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2640,
+          448
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "need-lookup-conversation",
+                "leftValue": "={{ $json.needLookupConversation }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "507ac6c8-bfcd-4ca3-96b5-708e3b37d542",
+        "name": "Check: Buscar conversaciones",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2432,
+          368
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\n\nif (source.existingConvId) {\n  return [{\n    json: {\n      ...source,\n      contactId: source.existingContactId ?? source.contactId ?? null,\n      convId: source.existingConvId,\n      needCreateConversation: false\n    }\n  }];\n}\n\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = Number($env.CHATWOOT_INBOX_ID || 0);\nconst sorted = [...conversations].sort((a, b) => Number(b.last_activity_at ?? b.updated_at ?? b.id ?? 0) - Number(a.last_activity_at ?? a.updated_at ?? a.id ?? 0));\nconst preferred = preferredInboxId ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId) : sorted;\nconst pool = preferred.length ? preferred : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: source.existingContactId ?? source.contactId ?? null,\n    convId: chosen?.id ?? null,\n    needCreateConversation: !chosen\n  }\n}];"
+        },
+        "id": "c25f7494-e107-4d7f-95e0-bcbb2446f374",
+        "name": "Resolver conversacion existente",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2864,
+          448
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\nconst created = $input.first().json;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: created.id,\n    convId: null,\n    needCreateConversation: true\n  }\n}];"
+        },
+        "id": "8bcb5603-47a6-431d-a906-f54e186bc9fa",
+        "name": "Preparar contacto creado",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2640,
+          128
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "need-conversation",
+                "leftValue": "={{ $json.needCreateConversation }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "841122c8-c5a4-49b8-b78c-9ca1b9dcd367",
+        "name": "Check: Crear conversacion",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          3088,
+          288
+        ]
+      }
+    ],
+    "connections": {
+      "YCloud Webhook": {
+        "main": [
+          [
+            {
+              "node": "ACK 200",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Extraer campos",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extraer campos": {
+        "main": [
+          [
+            {
+              "node": "¿Skip?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Skip?": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Redis: ¿Duplicado?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis: ¿Duplicado?": {
+        "main": [
+          [
+            {
+              "node": "¿Ya procesado?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Ya procesado?": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Redis: Marcar procesado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis: Marcar procesado": {
+        "main": [
+          [
+            {
+              "node": "CRM: Grabar mensaje",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CRM: Grabar mensaje": {
+        "main": [
+          [
+            {
+              "node": "CRM: Obtener prospecto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CRM: Obtener prospecto": {
+        "main": [
+          [
+            {
+              "node": "Extraer prospecto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extraer prospecto": {
+        "main": [
+          [
+            {
+              "node": "¿Sync Chatwoot?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Sync Chatwoot?": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Buscar contacto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Buscar contacto": {
+        "main": [
+          [
+            {
+              "node": "Decidir Chatwoot flow",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decidir Chatwoot flow": {
+        "main": [
+          [
+            {
+              "node": "¿Crear contacto?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Crear contacto?": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Crear contacto",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Check: Buscar conversaciones",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Crear contacto": {
+        "main": [
+          [
+            {
+              "node": "Preparar contacto creado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Crear conversación": {
+        "main": [
+          [
+            {
+              "node": "Unificar convId",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Unificar convId": {
+        "main": [
+          [
+            {
+              "node": "CRM: Guardar convId",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Chatwoot: Agregar mensaje",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Mapear etiqueta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mapear etiqueta": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Poner etiqueta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Poner etiqueta": {
+        "main": [
+          [
+            {
+              "node": "¿Aplicar setter IA?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Aplicar setter IA?": {
+        "main": [
+          [
+            {
+              "node": "Redis: Rate limit setter",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis: Rate limit setter": {
+        "main": [
+          [
+            {
+              "node": "¿Puede responder?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Puede responder?": {
+        "main": [
+          [
+            {
+              "node": "OpenAI: Setter IA",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "OpenAI: Setter IA": {
+        "main": [
+          [
+            {
+              "node": "¿Responder?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "¿Responder?": {
+        "main": [
+          [
+            {
+              "node": "Delay random",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Delay random": {
+        "main": [
+          [
+            {
+              "node": "YCloud: Enviar respuesta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "YCloud: Enviar respuesta": {
+        "main": [
+          [
+            {
+              "node": "Redis: Marcar enviado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis: Marcar enviado": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Registrar saliente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Conversaciones contacto": {
+        "main": [
+          [
+            {
+              "node": "Resolver conversacion existente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar contacto creado": {
+        "main": [
+          [
+            {
+              "node": "Check: Crear conversacion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check: Buscar conversaciones": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Conversaciones contacto",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Resolver conversacion existente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resolver conversacion existente": {
+        "main": [
+          [
+            {
+              "node": "Check: Crear conversacion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check: Crear conversacion": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Crear conversación",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Unificar convId",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Tomas Bravo",
+    "name": "Version be4d45d0",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-23T17:15:41.265Z",
+        "id": 169,
+        "workflowId": "zecdf62L8bWdaH4O",
+        "versionId": "be4d45d0-0ba7-44a3-8b98-c604317c7b51",
+        "event": "activated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    ]
+  }
+}

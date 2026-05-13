@@ -34,20 +34,18 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      db.insert(contacts)
-        .values({
-          name: contact.name,
-          email: contact.email || null,
-          phone: contact.phone || null,
-          company: contact.company || null,
-          source: contact.source || "import",
-          temperature: contact.temperature || "cold",
-          score: contact.score || 0,
-          notes: contact.notes || null,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
+      await db.insert(contacts).values({
+        name: contact.name,
+        email: contact.email || null,
+        phone: contact.phone || null,
+        company: contact.company || null,
+        source: contact.source || "import",
+        temperature: contact.temperature || "cold",
+        score: contact.score || 0,
+        notes: contact.notes || null,
+        createdAt: now,
+        updatedAt: now,
+      });
       results.imported++;
     } catch (error) {
       results.failed++;

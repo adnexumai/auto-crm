@@ -1,0 +1,795 @@
+{
+  "updatedAt": "2026-05-12T18:18:22.565Z",
+  "createdAt": "2026-04-14T00:29:34.148Z",
+  "id": "KJMUXFzemVu2PpIf",
+  "name": "02 - PROD - Outbound Humano | Chatwoot -> YCloud",
+  "description": "Chatwoot → WhatsApp: audio pasa por Cloudinary y se fuerza codec Opus (f_ogg,ac_opus) para que WhatsApp entregue la nota de voz. Texto/imagen/video van directo.",
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-agent-outbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Chatwoot Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "1cca20e6-ad9d-48fc-af30-8cc55edd0bb0"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtrar solo mensajes humanos salientes del inbox de WhatsApp\nconst body = $input.first().json.body ?? $input.first().json;\nconst event = body.event ?? '';\nconst messageType = body.message_type ?? '';\nconst senderType = body.sender?.type ?? '';\nconst isPrivate = body.private === true;\nconst preferredInboxId = 2;\nconst inboxId = Number(body.inbox?.id ?? body.conversation?.inbox_id ?? 0);\nconst phone = body.contact?.phone_number ?? body.contact?.phone ?? body.conversation?.meta?.sender?.phone_number ?? body.meta?.sender?.phone_number ?? '';\nconst content = (body.content ?? '').trim();\n\nif (event !== 'message_created') {\n  return [{ json: { skip: true, reason: `evento no soportado: ${event}` } }];\n}\n\nif (messageType !== 'outgoing') {\n  return [{ json: { skip: true, reason: `message_type ignorado: ${messageType}` } }];\n}\n\nif (senderType !== 'user') {\n  return [{ json: { skip: true, reason: `sender_type ignorado: ${senderType}` } }];\n}\n\nif (isPrivate) {\n  return [{ json: { skip: true, reason: 'nota privada' } }];\n}\n\nif (preferredInboxId && inboxId && preferredInboxId !== inboxId) {\n  return [{ json: { skip: true, reason: `inbox no coincide: ${inboxId}` } }];\n}\n\nif (!phone || !content) {\n  return [{ json: { skip: true, reason: 'sin phone o content' } }];\n}\n\nconst dedupeKey = body.id\n  ? `chatwoot-msg:${body.id}`\n  : `chatwoot-msg:${body.conversation?.id ?? 'sin-conv'}:${content}`;\n\nreturn [{\n  json: {\n    phone,\n    content,\n    dedupeKey,\n    messageId: body.id ?? null,\n    conversationId: body.conversation?.id ?? null,\n    inboxId: inboxId || null\n  }\n}];"
+      },
+      "id": "normalize-message",
+      "name": "Normalizar mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-skip",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.dedupeKey }}",
+        "options": {}
+      },
+      "id": "redis-check-dup",
+      "name": "Redis: Duplicado?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        900,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-dup",
+      "name": "Ya procesado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Normalizar mensaje').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('Normalizar mensaje').first().json.content }}\" }\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "ycloud-send",
+      "name": "YCloud: Enviar mensaje humano",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        380
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3tG6XINdcYqEOCPS",
+          "name": "YCloud Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar mensaje').first().json.dedupeKey }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400,
+        "options": {}
+      },
+      "id": "redis-mark",
+      "name": "Redis: Marcar procesado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "id": "Mi588IYmYFzzQxxs",
+          "name": "Redis account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chatwoot Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Normalizar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensaje": {
+      "main": [
+        [
+          {
+            "node": "Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip?": {
+      "main": [
+        [
+          {
+            "node": "Redis: Duplicado?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Redis: Duplicado?": {
+      "main": [
+        [
+          {
+            "node": "Ya procesado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ya procesado?": {
+      "main": [
+        [
+          {
+            "node": "YCloud: Enviar mensaje humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "YCloud: Enviar mensaje humano": {
+      "main": [
+        [
+          {
+            "node": "Redis: Marcar procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "binaryMode": "separate",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {
+    "aiBuilderAssisted": true
+  },
+  "pinData": {
+    "Chatwoot Trigger": [
+      {
+        "json": {
+          "headers": {
+            "host": "webhook.adnexum.net",
+            "user-agent": "rest-client/2.1.0 (linux-musl x86_64) ruby/3.4.4p34",
+            "content-length": "2158",
+            "accept": "application/json",
+            "accept-encoding": "gzip;q=1.0,deflate;q=0.6,identity;q=0.3",
+            "content-type": "application/json",
+            "x-chatwoot-delivery": "da23a352-a689-4cad-a715-873b67be0efd",
+            "x-chatwoot-signature": "sha256=b2a874bba6a4201793ef35be4ebf0bf16241e9af991b1c97c7100e6640cca20a",
+            "x-chatwoot-timestamp": "1776129012",
+            "x-forwarded-for": "172.18.0.1",
+            "x-forwarded-host": "webhook.adnexum.net",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "dbff84ef26b7",
+            "x-real-ip": "172.18.0.1"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "account": {
+              "id": 2,
+              "name": "Adnexum AI"
+            },
+            "additional_attributes": {},
+            "content_attributes": {},
+            "content_type": "text",
+            "content": "hola\n\n\n",
+            "conversation": {
+              "additional_attributes": {},
+              "can_reply": true,
+              "channel": "Channel::Api",
+              "contact_inbox": {
+                "id": 349,
+                "contact_id": 5,
+                "inbox_id": 2,
+                "source_id": "5492974194948",
+                "created_at": "2026-04-13T20:59:40.771Z",
+                "updated_at": "2026-04-13T20:59:40.771Z",
+                "hmac_verified": false,
+                "pubsub_token": "yT68yW3SYgyXiX3eoCAa72HE"
+              },
+              "id": 2,
+              "inbox_id": 2,
+              "messages": [
+                {
+                  "id": 19,
+                  "content": "hola\n\n\n",
+                  "account_id": 2,
+                  "inbox_id": 2,
+                  "conversation_id": 2,
+                  "message_type": 1,
+                  "created_at": 1776129012,
+                  "updated_at": "2026-04-14T01:10:12.717Z",
+                  "private": false,
+                  "status": "sent",
+                  "source_id": null,
+                  "content_type": "text",
+                  "content_attributes": {},
+                  "sender_type": "User",
+                  "sender_id": 2,
+                  "external_source_ids": {},
+                  "additional_attributes": {},
+                  "processed_message_content": "hola\n\n\n",
+                  "sentiment": {},
+                  "conversation": {
+                    "assignee_id": 2,
+                    "unread_count": 0,
+                    "last_activity_at": 1776129012,
+                    "contact_inbox": {
+                      "source_id": "5492974194948"
+                    }
+                  },
+                  "sender": {
+                    "id": 2,
+                    "name": "tomas bravo",
+                    "available_name": "tomas bravo",
+                    "avatar_url": "",
+                    "type": "user",
+                    "availability_status": null,
+                    "thumbnail": ""
+                  }
+                }
+              ],
+              "labels": [],
+              "meta": {
+                "sender": {
+                  "additional_attributes": {},
+                  "custom_attributes": {},
+                  "email": null,
+                  "id": 5,
+                  "identifier": null,
+                  "name": "Tomas Bravo",
+                  "phone_number": "+5492974194948",
+                  "thumbnail": "",
+                  "blocked": false,
+                  "type": "contact"
+                },
+                "assignee": {
+                  "id": 2,
+                  "name": "tomas bravo",
+                  "available_name": "tomas bravo",
+                  "avatar_url": "",
+                  "type": "user",
+                  "availability_status": null,
+                  "thumbnail": ""
+                },
+                "assignee_type": "User",
+                "team": null,
+                "hmac_verified": false
+              },
+              "status": "open",
+              "custom_attributes": {},
+              "snoozed_until": null,
+              "unread_count": 0,
+              "first_reply_created_at": "2026-04-14T00:22:54.813Z",
+              "priority": null,
+              "waiting_since": 0,
+              "agent_last_seen_at": 1776128092,
+              "contact_last_seen_at": 0,
+              "last_activity_at": 1776129012,
+              "timestamp": 1776129012,
+              "created_at": 1776113980,
+              "updated_at": 1776129012.727259
+            },
+            "created_at": "2026-04-14T01:10:12.717Z",
+            "id": 19,
+            "inbox": {
+              "id": 2,
+              "name": "YCloud Bridge"
+            },
+            "message_type": "outgoing",
+            "private": false,
+            "sender": {
+              "id": 2,
+              "name": "tomas bravo",
+              "email": "adnexum.net@gmail.com",
+              "type": "user"
+            },
+            "source_id": null,
+            "event": "message_created"
+          },
+          "webhookUrl": "https://webhook.adnexum.net/webhook/chatwoot-agent-outbound",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+  "activeVersionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+  "versionCounter": 144,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-14T00:29:34.148Z",
+      "createdAt": "2026-04-14T00:29:34.148Z",
+      "role": "workflow:owner",
+      "workflowId": "KJMUXFzemVu2PpIf",
+      "projectId": "DPsoqujzvQy2wZdN",
+      "project": {
+        "updatedAt": "2026-04-07T15:10:16.121Z",
+        "createdAt": "2026-04-07T15:03:54.833Z",
+        "id": "DPsoqujzvQy2wZdN",
+        "name": "Tomas Bravo <adnexum.net@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-05-12T18:17:14.905Z",
+      "createdAt": "2026-05-12T18:17:14.905Z",
+      "id": "FxWqHjpJWBJpw4ob",
+      "name": "Adnexum CRM"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:15.853Z",
+      "createdAt": "2026-05-12T18:17:15.853Z",
+      "id": "e5QVvt3Z9OSDU1UN",
+      "name": "Prospeccion"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.169Z",
+      "createdAt": "2026-05-12T18:17:16.169Z",
+      "id": "MtLfrR5YMyxILjip",
+      "name": "Produccion"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.483Z",
+      "createdAt": "2026-05-12T18:17:16.483Z",
+      "id": "GzE6qIo7Ywak8YFu",
+      "name": "YCloud"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.796Z",
+      "createdAt": "2026-05-12T18:17:16.796Z",
+      "id": "PsyEwYGSwygYkdvG",
+      "name": "Chatwoot"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-05-12T00:02:48.308Z",
+    "createdAt": "2026-05-12T00:02:48.308Z",
+    "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+    "workflowId": "KJMUXFzemVu2PpIf",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "chatwoot-agent-outbound",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-trigger",
+        "name": "Chatwoot Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          300
+        ],
+        "webhookId": "1cca20e6-ad9d-48fc-af30-8cc55edd0bb0"
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "OK",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "respond-200",
+        "name": "ACK 200",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          460,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Filtrar solo mensajes humanos salientes del inbox de WhatsApp\nconst body = $input.first().json.body ?? $input.first().json;\nconst event = body.event ?? '';\nconst messageType = body.message_type ?? '';\nconst senderType = body.sender?.type ?? '';\nconst isPrivate = body.private === true;\nconst preferredInboxId = 2;\nconst inboxId = Number(body.inbox?.id ?? body.conversation?.inbox_id ?? 0);\nconst phone = body.contact?.phone_number ?? body.contact?.phone ?? body.conversation?.meta?.sender?.phone_number ?? body.meta?.sender?.phone_number ?? '';\nconst content = (body.content ?? '').trim();\n\nif (event !== 'message_created') {\n  return [{ json: { skip: true, reason: `evento no soportado: ${event}` } }];\n}\n\nif (messageType !== 'outgoing') {\n  return [{ json: { skip: true, reason: `message_type ignorado: ${messageType}` } }];\n}\n\nif (senderType !== 'user') {\n  return [{ json: { skip: true, reason: `sender_type ignorado: ${senderType}` } }];\n}\n\nif (isPrivate) {\n  return [{ json: { skip: true, reason: 'nota privada' } }];\n}\n\nif (preferredInboxId && inboxId && preferredInboxId !== inboxId) {\n  return [{ json: { skip: true, reason: `inbox no coincide: ${inboxId}` } }];\n}\n\nif (!phone || !content) {\n  return [{ json: { skip: true, reason: 'sin phone o content' } }];\n}\n\nconst dedupeKey = body.id\n  ? `chatwoot-msg:${body.id}`\n  : `chatwoot-msg:${body.conversation?.id ?? 'sin-conv'}:${content}`;\n\nreturn [{\n  json: {\n    phone,\n    content,\n    dedupeKey,\n    messageId: body.id ?? null,\n    conversationId: body.conversation?.id ?? null,\n    inboxId: inboxId || null\n  }\n}];"
+        },
+        "id": "normalize-message",
+        "name": "Normalizar mensaje",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          460,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "skip-check",
+                "leftValue": "={{ $json.skip }}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "equal"
+                }
+              }
+            ]
+          }
+        },
+        "id": "if-skip",
+        "name": "Skip?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          680,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "get",
+          "key": "={{ $json.dedupeKey }}",
+          "options": {}
+        },
+        "id": "redis-check-dup",
+        "name": "Redis: Duplicado?",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          900,
+          380
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "dup-check",
+                "leftValue": "={{ $json.value }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty"
+                }
+              }
+            ]
+          }
+        },
+        "id": "if-dup",
+        "name": "Ya procesado?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.ycloud.com/v2/whatsapp/messages",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"to\": \"{{ $('Normalizar mensaje').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('Normalizar mensaje').first().json.content }}\" }\n}",
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        },
+        "id": "ycloud-send",
+        "name": "YCloud: Enviar mensaje humano",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1340,
+          380
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "3tG6XINdcYqEOCPS",
+            "name": "YCloud Adnexum"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "set",
+          "key": "={{ $('Normalizar mensaje').first().json.dedupeKey }}",
+          "value": "1",
+          "keyType": "string",
+          "expire": true,
+          "ttl": 86400,
+          "options": {}
+        },
+        "id": "redis-mark",
+        "name": "Redis: Marcar procesado",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          1560,
+          380
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Mi588IYmYFzzQxxs",
+            "name": "Redis account"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Chatwoot Webhook": {
+        "main": [
+          [
+            {
+              "node": "ACK 200",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Normalizar mensaje",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Normalizar mensaje": {
+        "main": [
+          [
+            {
+              "node": "Skip?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Skip?": {
+        "main": [
+          [
+            {
+              "node": "Redis: Duplicado?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Redis: Duplicado?": {
+        "main": [
+          [
+            {
+              "node": "Ya procesado?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ya procesado?": {
+        "main": [
+          [
+            {
+              "node": "YCloud: Enviar mensaje humano",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "YCloud: Enviar mensaje humano": {
+        "main": [
+          [
+            {
+              "node": "Redis: Marcar procesado",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Tomas Bravo",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-05-12T00:02:48.333Z",
+        "id": 296,
+        "workflowId": "KJMUXFzemVu2PpIf",
+        "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+        "event": "deactivated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T00:02:48.344Z",
+        "id": 297,
+        "workflowId": "KJMUXFzemVu2PpIf",
+        "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+        "event": "activated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T18:18:22.589Z",
+        "id": 344,
+        "workflowId": "KJMUXFzemVu2PpIf",
+        "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+        "event": "deactivated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T18:18:22.602Z",
+        "id": 345,
+        "workflowId": "KJMUXFzemVu2PpIf",
+        "versionId": "49b63a9e-6131-45b3-b7ae-8e6111f13896",
+        "event": "activated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { AlertCircle, Clock, ArrowRight } from "lucide-react";
+import { withBasePath } from "@/lib/paths";
 
 interface FollowUpData {
   overdue: unknown[];
@@ -15,7 +16,7 @@ export function NotificationBanner() {
   const [data, setData] = useState<FollowUpData | null>(null);
 
   useEffect(() => {
-    fetch("/api/followups")
+    fetch(withBasePath("/api/followups"))
       .then((r) => r.json())
       .then(setData)
       .catch(() => {});

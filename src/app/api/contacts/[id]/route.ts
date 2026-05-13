@@ -9,11 +9,10 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const contact = db
+  const [contact] = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.id, id))
-    .get();
+    .where(eq(contacts.id, id));
 
   if (!contact) {
     return NextResponse.json(
@@ -22,17 +21,15 @@ export async function GET(
     );
   }
 
-  const contactDeals = db
+  const contactDeals = await db
     .select()
     .from(deals)
-    .where(eq(deals.contactId, id))
-    .all();
+    .where(eq(deals.contactId, id));
 
-  const contactActivities = db
+  const contactActivities = await db
     .select()
     .from(activities)
-    .where(eq(activities.contactId, id))
-    .all();
+    .where(eq(activities.contactId, id));
 
   return NextResponse.json({
     ...contact,
@@ -54,11 +51,10 @@ export async function PUT(
     return NextResponse.json({ error: "JSON invalido" }, { status: 400 });
   }
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.id, id))
-    .get();
+    .where(eq(contacts.id, id));
 
   if (!existing) {
     return NextResponse.json(
@@ -67,7 +63,6 @@ export async function PUT(
     );
   }
 
-  // Only allow updating specific fields
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
   if (body.name !== undefined) updateData.name = body.name;
   if (body.email !== undefined) updateData.email = body.email;
@@ -78,12 +73,11 @@ export async function PUT(
   if (body.score !== undefined) updateData.score = Math.max(0, Math.min(100, body.score));
   if (body.notes !== undefined) updateData.notes = body.notes;
 
-  const result = db
+  const [result] = await db
     .update(contacts)
     .set(updateData)
     .where(eq(contacts.id, id))
-    .returning()
-    .get();
+    .returning();
 
   return NextResponse.json(result);
 }
@@ -94,11 +88,10 @@ export async function DELETE(
 ) {
   const { id } = await params;
 
-  const existing = db
+  const [existing] = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.id, id))
-    .get();
+    .where(eq(contacts.id, id));
 
   if (!existing) {
     return NextResponse.json(
@@ -107,6 +100,6 @@ export async function DELETE(
     );
   }
 
-  db.delete(contacts).where(eq(contacts.id, id)).run();
+  await db.delete(contacts).where(eq(contacts.id, id));
   return NextResponse.json({ success: true });
 }

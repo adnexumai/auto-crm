@@ -1,0 +1,154 @@
+{
+  "updatedAt": "2026-05-12T18:18:24.924Z",
+  "createdAt": "2026-05-12T17:35:33.020Z",
+  "id": "b5lXmpGAXm466bKL",
+  "name": "90 - MANT - Backfill Nota Privada | CRM -> Chatwoot",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-backfill-note",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Backfill Note Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "chatwoot-backfill-note"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "ack",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/' + ($json.body?.convId ?? $json.convId) + '/messages' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { content: ($json.body?.content ?? $json.content ?? ''), message_type: 'outgoing', private: true } }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "create-note",
+      "name": "Chatwoot: Crear nota privada",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Backfill Note Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Crear nota privada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "3ac83ddf-b9e3-4bd3-b34e-22a8deb88278",
+  "activeVersionId": null,
+  "versionCounter": 10,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-05-12T17:35:33.020Z",
+      "createdAt": "2026-05-12T17:35:33.020Z",
+      "role": "workflow:owner",
+      "workflowId": "b5lXmpGAXm466bKL",
+      "projectId": "DPsoqujzvQy2wZdN",
+      "project": {
+        "updatedAt": "2026-04-07T15:10:16.121Z",
+        "createdAt": "2026-04-07T15:03:54.833Z",
+        "id": "DPsoqujzvQy2wZdN",
+        "name": "Tomas Bravo <adnexum.net@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-05-12T18:17:14.905Z",
+      "createdAt": "2026-05-12T18:17:14.905Z",
+      "id": "FxWqHjpJWBJpw4ob",
+      "name": "Adnexum CRM"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:15.853Z",
+      "createdAt": "2026-05-12T18:17:15.853Z",
+      "id": "e5QVvt3Z9OSDU1UN",
+      "name": "Prospeccion"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:17.120Z",
+      "createdAt": "2026-05-12T18:17:17.120Z",
+      "id": "KjsnQXTftI1jTnab",
+      "name": "Mantenimiento"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.796Z",
+      "createdAt": "2026-05-12T18:17:16.796Z",
+      "id": "PsyEwYGSwygYkdvG",
+      "name": "Chatwoot"
+    }
+  ],
+  "activeVersion": null
+}

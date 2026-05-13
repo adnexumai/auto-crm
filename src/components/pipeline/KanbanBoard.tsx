@@ -15,6 +15,7 @@ import {
 import { KanbanColumn } from "./KanbanColumn";
 import { DealCard } from "./DealCard";
 import { toast } from "sonner";
+import { withBasePath } from "@/lib/paths";
 import type { PipelineColumn } from "@/types";
 
 interface KanbanBoardProps {
@@ -99,7 +100,7 @@ export function KanbanBoard({ initialColumns }: KanbanBoardProps) {
 
       // Update the deal's stage via API
       try {
-        const res = await fetch("/api/pipeline", {
+      const res = await fetch(withBasePath("/api/pipeline"), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

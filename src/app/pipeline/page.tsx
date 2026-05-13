@@ -1,67 +1,65 @@
 import { db } from "@/db";
-import { pipelineStages, deals, contacts } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
-import { KanbanBoard } from "@/components/pipeline/KanbanBoard";
-import type { PipelineColumn } from "@/types";
+import { prospectos } from "@/db/schema";
+import { ProspectingKanbanBoard } from "@/components/prospeccion/ProspectingKanbanBoard";
+import {
+  PROSPECT_ESTADOS,
+  PROSPECT_STATUS_COLORS,
+  PROSPECT_STATUS_LABELS,
+  getProspectDisplayName,
+} from "@/lib/prospecting";
+import { desc } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
-export default function PipelinePage() {
-  const stages = db
-    .select()
-    .from(pipelineStages)
-    .orderBy(asc(pipelineStages.order))
-    .all();
-
-  const allDeals = db
+export default async function PipelinePage() {
+  const rows = await db
     .select({
-      id: deals.id,
-      title: deals.title,
-      value: deals.value,
-      stageId: deals.stageId,
-      contactId: deals.contactId,
-      expectedClose: deals.expectedClose,
-      probability: deals.probability,
-      notes: deals.notes,
-      createdAt: deals.createdAt,
-      updatedAt: deals.updatedAt,
-      contactName: contacts.name,
-      contactTemperature: contacts.temperature,
+      id: prospectos.id,
+      telefono: prospectos.telefono,
+      nombreContacto: prospectos.nombreContacto,
+      negocio: prospectos.negocio,
+      rubro: prospectos.rubro,
+      estado: prospectos.estado,
+      respondio: prospectos.respondio,
+      oportunidadScore: prospectos.oportunidadScore,
+      temperatura: prospectos.temperatura,
+      intencionesJson: prospectos.intencionesJson,
+      proximoPaso: prospectos.proximoPaso,
+      requiereHumano: prospectos.requiereHumano,
+      destacado: prospectos.destacado,
+      resumenIa: prospectos.resumenIa,
+      notas: prospectos.notas,
+      mensajesEnviados: prospectos.mensajesEnviados,
+      ultimoContacto: prospectos.ultimoContacto,
+      fechaAgendado: prospectos.fechaAgendado,
+      chatwootConversationId: prospectos.chatwootConversationId,
     })
-    .from(deals)
-    .leftJoin(contacts, eq(deals.contactId, contacts.id))
-    .all();
+    .from(prospectos)
+    .orderBy(desc(prospectos.ultimoContacto));
 
-  const columns: PipelineColumn[] = stages.map((stage) => ({
-    ...stage,
-    deals: allDeals
-      .filter((d) => d.stageId === stage.id)
-      .map((d) => ({
-        id: d.id,
-        title: d.title,
-        value: d.value,
-        stageId: d.stageId,
-        contactId: d.contactId,
-        expectedClose: d.expectedClose,
-        probability: d.probability,
-        notes: d.notes,
-        createdAt: d.createdAt,
-        updatedAt: d.updatedAt,
-        contactName: d.contactName,
-        contactTemperature: d.contactTemperature,
-      })) as PipelineColumn["deals"],
+  const columns = PROSPECT_ESTADOS.map((estado) => ({
+    id: estado,
+    name: PROSPECT_STATUS_LABELS[estado],
+    color: PROSPECT_STATUS_COLORS[estado],
+    count: rows.filter((row) => row.estado === estado).length,
+    prospects: rows
+      .filter((row) => row.estado === estado)
+      .map((row) => ({
+        ...row,
+        displayName: getProspectDisplayName(row),
+      })),
   }));
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Pipeline de prospeccion</h1>
         <p className="text-muted-foreground">
-          Arrastra y suelta deals entre etapas
+          Mueve cada lead segun el estado real de la conversacion.
         </p>
       </div>
 
-      <KanbanBoard initialColumns={columns} />
+      <ProspectingKanbanBoard initialColumns={columns} />
     </div>
   );
 }

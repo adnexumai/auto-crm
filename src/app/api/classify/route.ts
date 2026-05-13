@@ -21,11 +21,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const contact = db
+  const [contact] = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .get();
+    .where(eq(contacts.id, contactId));
 
   if (!contact) {
     return NextResponse.json(
@@ -34,11 +33,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const contactActivities = db
+  const contactActivities = await db
     .select()
     .from(activities)
-    .where(eq(activities.contactId, contactId))
-    .all();
+    .where(eq(activities.contactId, contactId));
 
   if (isAIEnabled()) {
     try {
@@ -62,15 +60,13 @@ export async function POST(request: NextRequest) {
         }))
       );
 
-      // Update contact with AI classification
-      db.update(contacts)
+      await db.update(contacts)
         .set({
           temperature: result.temperature,
           score: result.score,
           updatedAt: new Date(),
         })
-        .where(eq(contacts.id, contactId))
-      .run();
+        .where(eq(contacts.id, contactId));
 
       return NextResponse.json({
         ...result,
@@ -117,10 +113,9 @@ export async function POST(request: NextRequest) {
 
   const temperature = suggestTemperature(score);
 
-  db.update(contacts)
+  await db.update(contacts)
     .set({ temperature, score, updatedAt: new Date() })
-    .where(eq(contacts.id, contactId))
-    .run();
+    .where(eq(contacts.id, contactId));
 
   return NextResponse.json({
     temperature,

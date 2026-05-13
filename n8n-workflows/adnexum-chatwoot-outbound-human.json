@@ -1,0 +1,274 @@
+{
+  "name": "Adnexum - Chatwoot Outbound Humano (Chatwoot -> YCloud)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "adnexum-chatwoot-outbound-human",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Chatwoot Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtrar solo mensajes humanos salientes del inbox de WhatsApp\nconst body = $input.first().json.body ?? $input.first().json;\nconst event = body.event ?? '';\nconst messageType = body.message_type ?? '';\nconst senderType = body.sender?.type ?? '';\nconst isPrivate = body.private === true;\nconst preferredInboxId = Number($env.CHATWOOT_INBOX_ID || 0);\nconst inboxId = Number(body.inbox?.id ?? body.conversation?.inbox_id ?? 0);\nconst phone = body.contact?.phone_number ?? body.contact?.phone ?? body.conversation?.meta?.sender?.phone_number ?? body.meta?.sender?.phone_number ?? '';\nconst content = (body.content ?? '').trim();\n\nif (event !== 'message_created') {\n  return [{ json: { skip: true, reason: `evento no soportado: ${event}` } }];\n}\n\nif (messageType !== 'outgoing') {\n  return [{ json: { skip: true, reason: `message_type ignorado: ${messageType}` } }];\n}\n\nif (senderType !== 'user') {\n  return [{ json: { skip: true, reason: `sender_type ignorado: ${senderType}` } }];\n}\n\nif (isPrivate) {\n  return [{ json: { skip: true, reason: 'nota privada' } }];\n}\n\nif (preferredInboxId && inboxId && preferredInboxId !== inboxId) {\n  return [{ json: { skip: true, reason: `inbox no coincide: ${inboxId}` } }];\n}\n\nif (!phone || !content) {\n  return [{ json: { skip: true, reason: 'sin phone o content' } }];\n}\n\nconst dedupeKey = body.id\n  ? `chatwoot-msg:${body.id}`\n  : `chatwoot-msg:${body.conversation?.id ?? 'sin-conv'}:${content}`;\n\nreturn [{\n  json: {\n    phone,\n    content,\n    dedupeKey,\n    messageId: body.id ?? null,\n    conversationId: body.conversation?.id ?? null,\n    inboxId: inboxId || null\n  }\n}];"
+      },
+      "id": "normalize-message",
+      "name": "Normalizar mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-skip",
+      "name": "Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.dedupeKey }}",
+        "options": {}
+      },
+      "id": "redis-check-dup",
+      "name": "Redis: Duplicado?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        900,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-dup",
+      "name": "Ya procesado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Normalizar mensaje').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('Normalizar mensaje').first().json.content }}\" }\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "ycloud-send",
+      "name": "YCloud: Enviar mensaje humano",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        380
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "3tG6XINdcYqEOCPS",
+          "name": "YCloud Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Normalizar mensaje').first().json.dedupeKey }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400,
+        "options": {}
+      },
+      "id": "redis-mark",
+      "name": "Redis: Marcar procesado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chatwoot Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Normalizar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensaje": {
+      "main": [
+        [
+          {
+            "node": "Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: Duplicado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Duplicado?": {
+      "main": [
+        [
+          {
+            "node": "Ya procesado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ya procesado?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "YCloud: Enviar mensaje humano",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YCloud: Enviar mensaje humano": {
+      "main": [
+        [
+          {
+            "node": "Redis: Marcar procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "_comment": {
+    "env_vars_needed": [
+      "YCLOUD_API_KEY",
+      "CHATWOOT_INBOX_ID"
+    ],
+    "credentials_needed": [
+      "Redis credential named 'Redis Adnexum'"
+    ],
+    "note": "Configurar un webhook de Chatwoot suscripto a message_created apuntando a este path. El workflow solo envia mensajes humanos salientes del inbox de WhatsApp y evita reintentos duplicados con Redis."
+  }
+}

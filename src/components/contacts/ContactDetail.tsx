@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { withBasePath } from "@/lib/paths";
 import { ContactForm } from "./ContactForm";
 import { ActivityForm } from "@/components/activities/ActivityForm";
 import {
@@ -96,7 +97,7 @@ export function ContactDetailClient({
     }
 
     try {
-      const res = await fetch(`/api/contacts/${contact.id}`, { method: "DELETE" });
+    const res = await fetch(withBasePath(`/api/contacts/${contact.id}`), { method: "DELETE" });
       if (!res.ok) throw new Error("Error al eliminar");
       toast.success("Contacto eliminado");
       router.push("/contacts");
@@ -107,7 +108,7 @@ export function ContactDetailClient({
 
   const handleCompleteActivity = async (activityId: string) => {
     try {
-      const res = await fetch(`/api/activities/${activityId}`, {
+    const res = await fetch(withBasePath(`/api/activities/${activityId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ completedAt: new Date().toISOString() }),

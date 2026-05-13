@@ -1,0 +1,1356 @@
+{
+  "updatedAt": "2026-05-12T18:18:23.206Z",
+  "createdAt": "2026-04-10T20:39:18.847Z",
+  "id": "U8R2KLoiTsb7HwVD",
+  "name": "03 - PROD - Pipeline Labels | CRM -> Chatwoot",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm-estado-sync",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "CRM Estado Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "b357919c-95c6-416b-be27-25d0596e0605"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ESTADO_LABEL = {\n  enviado: 'pipe_enviado',\n  contactado: 'pipe_contactado',\n  respondio: 'pipe_respondio',\n  agendado: 'pipe_agendado',\n  seguimiento: 'pipe_seguimiento',\n  cerrado_positivo: 'pipe_ganado',\n  cerrado_negativo: 'pipe_perdido'\n};\n\nconst body = $input.first().json.body ?? $input.first().json;\nconst { prospectId, phone, nuevoEstado, chatwootConversationId } = body;\nif (!nuevoEstado && !Array.isArray(body.labels)) return [{ json: { skip: true } }];\nconst fallbackLabel = ESTADO_LABEL[nuevoEstado] ?? 'pipe_enviado';\nconst labels = Array.isArray(body.labels) && body.labels.length ? body.labels : [fallbackLabel];\nreturn [{ json: { prospectId, phone, nuevoEstado, labels, chatwootConversationId: chatwootConversationId ?? null } }];"
+      },
+      "id": "map-estado",
+      "name": "Mapear estado -> etiqueta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "has-conv-id",
+              "leftValue": "={{ $json.chatwootConversationId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-has-conv",
+      "name": "Tiene convId?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/' + $json.chatwootConversationId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-get-labels",
+      "name": "Chatwoot: Obtener etiquetas actuales",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.phone }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-search",
+      "name": "Chatwoot: Buscar por phone",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        380
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resolver contacto por phone y priorizar el inbox de WhatsApp si está configurado\nconst base = $('Mapear estado -> etiqueta').first().json;\nconst contacts = $input.first().json.payload ?? [];\nconst preferredInboxId = 2;\n\nif (!contacts.length) {\n  return [{ json: { ...base, contactId: null } }];\n}\n\nlet contact = contacts[0];\nif (preferredInboxId) {\n  const match = contacts.find((candidate) =>\n    (candidate.contact_inboxes ?? []).some((inboxRef) => Number(inboxRef.inbox?.id) === preferredInboxId)\n  );\n  if (match) contact = match;\n}\n\nreturn [{ json: { ...base, contactId: contact.id } }];"
+      },
+      "id": "resolve-contact-id",
+      "name": "Resolver contactId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "has-contact-id",
+              "leftValue": "={{ String($json.contactId || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-contact-id",
+      "name": "Tiene contactId?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/' + $json.contactId + '/conversations' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": []
+        },
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-contact-conversations",
+      "name": "Chatwoot: Conversaciones del contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        380
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Elegir la mejor conversación para actualizar etiquetas\nconst base = $('Resolver contactId').first().json;\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = 2;\n\nconst sorted = [...conversations].sort((a, b) => {\n  const left = Number(b.last_activity_at ?? b.updated_at ?? b.id ?? 0);\n  const right = Number(a.last_activity_at ?? a.updated_at ?? a.id ?? 0);\n  return left - right;\n});\n\nconst preferred = preferredInboxId\n  ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId)\n  : sorted;\nconst pool = preferred.length ? preferred : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\n\nreturn [{ json: { ...base, chatwootConversationId: chosen?.id ?? null } }];"
+      },
+      "id": "resolve-conversation-id",
+      "name": "Resolver convId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "has-resolved-conv-id",
+              "leftValue": "={{ String($json.chatwootConversationId || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-resolved-conv",
+      "name": "Conv resuelta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function firstJson(name) {\n  try { return $(name).first()?.json ?? null; } catch { return null; }\n}\n\nconst mapped = firstJson('Mapear estado -> etiqueta') ?? {};\nconst resolved = firstJson('Resolver convId') ?? {};\nconst conversation = firstJson('Chatwoot: Obtener etiquetas actuales') ?? $input.first().json ?? {};\n\nconst MANAGED_LABELS = [\n  'temp_frio','temp_tibio','temp_caliente',\n  'pipe_enviado','pipe_contactado','pipe_respondio','pipe_agendado','pipe_seguimiento','pipe_ganado','pipe_perdido',\n  'pipe_nuevo','prospecto-nuevo','contactado','respondio','llamada-agendada','en-seguimiento','cliente','descartado',\n  'int_interes','int_precio','int_demo','int_objecion','int_presupuesto','int_seguimiento','int_no_interes',\n  'requiere_humano','destacado'\n];\n\nconst currentLabels = Array.isArray(conversation.labels)\n  ? conversation.labels\n  : Array.isArray(conversation.payload)\n    ? conversation.payload\n    : [];\nconst requestedLabels = Array.isArray(mapped.labels) ? mapped.labels : [];\nconst manualLabels = currentLabels.filter((label) => !MANAGED_LABELS.includes(label));\nconst nuevasEtiquetas = [...new Set([...manualLabels, ...requestedLabels])];\nconst chatwootConversationId = mapped.chatwootConversationId ?? resolved.chatwootConversationId ?? conversation.id ?? null;\n\nreturn [{\n  json: {\n    ...mapped,\n    chatwootConversationId,\n    nuevasEtiquetas,\n  }\n}];"
+      },
+      "id": "build-labels",
+      "name": "Construir etiquetas nuevas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/' + $json.chatwootConversationId + '/labels' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"labels\": {{ JSON.stringify($json.nuevasEtiquetas) }} }",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "chatwoot-update-labels",
+      "name": "Chatwoot: Actualizar etiquetas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2660,
+        220
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ 'https://adnexumcrm.vercel.app/api/prospeccion/' + $json.prospectId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.chatwootConversationId }}\" }",
+        "options": {}
+      },
+      "id": "crm-save-resolved-conv",
+      "name": "CRM: Guardar convId resuelto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        440
+      ]
+    },
+    {
+      "id": "chatwoot-create-contact-sync",
+      "name": "Chatwoot: Crear contacto sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        560
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      }
+    },
+    {
+      "id": "prepare-created-contact-sync",
+      "name": "Preparar contacto creado sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        560
+      ],
+      "parameters": {
+        "jsCode": "const base = $('Resolver contactId').first().json;\nconst created = $input.first().json;\nconst contactId = created.id ?? created.payload?.contact?.id ?? created.contact?.id ?? null;\nreturn [{ json: { ...base, contactId } }];"
+      }
+    },
+    {
+      "id": "chatwoot-create-conversation-sync",
+      "name": "Chatwoot: Crear conversacion sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        560
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "N4CEos0e29NOLCXU",
+          "name": "Chatwoot"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": 2,\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      }
+    },
+    {
+      "id": "prepare-created-conversation-sync",
+      "name": "Preparar conversacion creada sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        560
+      ],
+      "parameters": {
+        "jsCode": "function firstJson(name) {\n  try { return $(name).first()?.json ?? null; } catch { return null; }\n}\nconst base = firstJson('Preparar contacto creado sync') ?? firstJson('Resolver convId') ?? firstJson('Resolver contactId') ?? {};\nconst created = $input.first().json;\nconst chatwootConversationId = created.id ?? created.payload?.id ?? created.conversation?.id ?? null;\nreturn [{ json: { ...base, chatwootConversationId } }];"
+      }
+    }
+  ],
+  "connections": {
+    "CRM Estado Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mapear estado -> etiqueta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear estado -> etiqueta": {
+      "main": [
+        [
+          {
+            "node": "Tiene convId?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tiene convId?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Obtener etiquetas actuales",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chatwoot: Buscar por phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Buscar por phone": {
+      "main": [
+        [
+          {
+            "node": "Resolver contactId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver contactId": {
+      "main": [
+        [
+          {
+            "node": "Tiene contactId?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tiene contactId?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Conversaciones del contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chatwoot: Crear contacto sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Conversaciones del contacto": {
+      "main": [
+        [
+          {
+            "node": "Resolver convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver convId": {
+      "main": [
+        [
+          {
+            "node": "Conv resuelta?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conv resuelta?": {
+      "main": [
+        [
+          {
+            "node": "CRM: Guardar convId resuelto",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Obtener etiquetas actuales",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chatwoot: Crear conversacion sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Obtener etiquetas actuales": {
+      "main": [
+        [
+          {
+            "node": "Construir etiquetas nuevas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construir etiquetas nuevas": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Actualizar etiquetas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear contacto sync": {
+      "main": [
+        [
+          {
+            "node": "Preparar contacto creado sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contacto creado sync": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear conversacion sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear conversacion sync": {
+      "main": [
+        [
+          {
+            "node": "Preparar conversacion creada sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar conversacion creada sync": {
+      "main": [
+        [
+          {
+            "node": "CRM: Guardar convId resuelto",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Obtener etiquetas actuales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+  "activeVersionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+  "versionCounter": 92,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-04-10T20:39:18.847Z",
+      "createdAt": "2026-04-10T20:39:18.847Z",
+      "role": "workflow:owner",
+      "workflowId": "U8R2KLoiTsb7HwVD",
+      "projectId": "DPsoqujzvQy2wZdN",
+      "project": {
+        "updatedAt": "2026-04-07T15:10:16.121Z",
+        "createdAt": "2026-04-07T15:03:54.833Z",
+        "id": "DPsoqujzvQy2wZdN",
+        "name": "Tomas Bravo <adnexum.net@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    }
+  ],
+  "tags": [
+    {
+      "updatedAt": "2026-05-12T18:17:14.905Z",
+      "createdAt": "2026-05-12T18:17:14.905Z",
+      "id": "FxWqHjpJWBJpw4ob",
+      "name": "Adnexum CRM"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:15.853Z",
+      "createdAt": "2026-05-12T18:17:15.853Z",
+      "id": "e5QVvt3Z9OSDU1UN",
+      "name": "Prospeccion"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.169Z",
+      "createdAt": "2026-05-12T18:17:16.169Z",
+      "id": "MtLfrR5YMyxILjip",
+      "name": "Produccion"
+    },
+    {
+      "updatedAt": "2026-05-12T18:17:16.796Z",
+      "createdAt": "2026-05-12T18:17:16.796Z",
+      "id": "PsyEwYGSwygYkdvG",
+      "name": "Chatwoot"
+    }
+  ],
+  "activeVersion": {
+    "updatedAt": "2026-05-12T17:42:18.850Z",
+    "createdAt": "2026-05-12T17:42:18.850Z",
+    "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+    "workflowId": "U8R2KLoiTsb7HwVD",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "crm-estado-sync",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-trigger",
+        "name": "CRM Estado Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          240,
+          300
+        ],
+        "webhookId": "b357919c-95c6-416b-be27-25d0596e0605"
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "OK",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "respond-200",
+        "name": "ACK 200",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          460,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const ESTADO_LABEL = {\n  enviado: 'pipe_enviado',\n  contactado: 'pipe_contactado',\n  respondio: 'pipe_respondio',\n  agendado: 'pipe_agendado',\n  seguimiento: 'pipe_seguimiento',\n  cerrado_positivo: 'pipe_ganado',\n  cerrado_negativo: 'pipe_perdido'\n};\n\nconst body = $input.first().json.body ?? $input.first().json;\nconst { prospectId, phone, nuevoEstado, chatwootConversationId } = body;\nif (!nuevoEstado && !Array.isArray(body.labels)) return [{ json: { skip: true } }];\nconst fallbackLabel = ESTADO_LABEL[nuevoEstado] ?? 'pipe_enviado';\nconst labels = Array.isArray(body.labels) && body.labels.length ? body.labels : [fallbackLabel];\nreturn [{ json: { prospectId, phone, nuevoEstado, labels, chatwootConversationId: chatwootConversationId ?? null } }];"
+        },
+        "id": "map-estado",
+        "name": "Mapear estado -> etiqueta",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          460,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "has-conv-id",
+                "leftValue": "={{ $json.chatwootConversationId }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty"
+                }
+              }
+            ]
+          }
+        },
+        "id": "if-has-conv",
+        "name": "Tiene convId?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          680,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/' + $json.chatwootConversationId }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": []
+          },
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        },
+        "id": "chatwoot-get-labels",
+        "name": "Chatwoot: Obtener etiquetas actuales",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2220,
+          220
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/search",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "q",
+                "value": "={{ $json.phone }}"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": []
+          },
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        },
+        "id": "chatwoot-search",
+        "name": "Chatwoot: Buscar por phone",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          900,
+          380
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Resolver contacto por phone y priorizar el inbox de WhatsApp si está configurado\nconst base = $('Mapear estado -> etiqueta').first().json;\nconst contacts = $input.first().json.payload ?? [];\nconst preferredInboxId = 2;\n\nif (!contacts.length) {\n  return [{ json: { ...base, contactId: null } }];\n}\n\nlet contact = contacts[0];\nif (preferredInboxId) {\n  const match = contacts.find((candidate) =>\n    (candidate.contact_inboxes ?? []).some((inboxRef) => Number(inboxRef.inbox?.id) === preferredInboxId)\n  );\n  if (match) contact = match;\n}\n\nreturn [{ json: { ...base, contactId: contact.id } }];"
+        },
+        "id": "resolve-contact-id",
+        "name": "Resolver contactId",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "has-contact-id",
+                "leftValue": "={{ String($json.contactId || '') }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty"
+                }
+              }
+            ]
+          }
+        },
+        "id": "if-contact-id",
+        "name": "Tiene contactId?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          1340,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/contacts/' + $json.contactId + '/conversations' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": []
+          },
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        },
+        "id": "chatwoot-contact-conversations",
+        "name": "Chatwoot: Conversaciones del contacto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1560,
+          380
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Elegir la mejor conversación para actualizar etiquetas\nconst base = $('Resolver contactId').first().json;\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = 2;\n\nconst sorted = [...conversations].sort((a, b) => {\n  const left = Number(b.last_activity_at ?? b.updated_at ?? b.id ?? 0);\n  const right = Number(a.last_activity_at ?? a.updated_at ?? a.id ?? 0);\n  return left - right;\n});\n\nconst preferred = preferredInboxId\n  ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId)\n  : sorted;\nconst pool = preferred.length ? preferred : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\n\nreturn [{ json: { ...base, chatwootConversationId: chosen?.id ?? null } }];"
+        },
+        "id": "resolve-conversation-id",
+        "name": "Resolver convId",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1780,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true
+            },
+            "conditions": [
+              {
+                "id": "has-resolved-conv-id",
+                "leftValue": "={{ String($json.chatwootConversationId || '') }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "string",
+                  "operation": "notEmpty"
+                }
+              }
+            ]
+          }
+        },
+        "id": "if-resolved-conv",
+        "name": "Conv resuelta?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2000,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "function firstJson(name) {\n  try { return $(name).first()?.json ?? null; } catch { return null; }\n}\n\nconst mapped = firstJson('Mapear estado -> etiqueta') ?? {};\nconst resolved = firstJson('Resolver convId') ?? {};\nconst conversation = firstJson('Chatwoot: Obtener etiquetas actuales') ?? $input.first().json ?? {};\n\nconst MANAGED_LABELS = [\n  'temp_frio','temp_tibio','temp_caliente',\n  'pipe_enviado','pipe_contactado','pipe_respondio','pipe_agendado','pipe_seguimiento','pipe_ganado','pipe_perdido',\n  'pipe_nuevo','prospecto-nuevo','contactado','respondio','llamada-agendada','en-seguimiento','cliente','descartado',\n  'int_interes','int_precio','int_demo','int_objecion','int_presupuesto','int_seguimiento','int_no_interes',\n  'requiere_humano','destacado'\n];\n\nconst currentLabels = Array.isArray(conversation.labels)\n  ? conversation.labels\n  : Array.isArray(conversation.payload)\n    ? conversation.payload\n    : [];\nconst requestedLabels = Array.isArray(mapped.labels) ? mapped.labels : [];\nconst manualLabels = currentLabels.filter((label) => !MANAGED_LABELS.includes(label));\nconst nuevasEtiquetas = [...new Set([...manualLabels, ...requestedLabels])];\nconst chatwootConversationId = mapped.chatwootConversationId ?? resolved.chatwootConversationId ?? conversation.id ?? null;\n\nreturn [{\n  json: {\n    ...mapped,\n    chatwootConversationId,\n    nuevasEtiquetas,\n  }\n}];"
+        },
+        "id": "build-labels",
+        "name": "Construir etiquetas nuevas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2440,
+          220
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ 'https://chatwoot.adnexum.net/api/v1/accounts/2/conversations/' + $json.chatwootConversationId + '/labels' }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={ \"labels\": {{ JSON.stringify($json.nuevasEtiquetas) }} }",
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        },
+        "id": "chatwoot-update-labels",
+        "name": "Chatwoot: Actualizar etiquetas",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2660,
+          220
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ 'https://adnexumcrm.vercel.app/api/prospeccion/' + $json.prospectId }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.chatwootConversationId }}\" }",
+          "options": {}
+        },
+        "id": "crm-save-resolved-conv",
+        "name": "CRM: Guardar convId resuelto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2220,
+          440
+        ]
+      },
+      {
+        "id": "chatwoot-create-contact-sync",
+        "name": "Chatwoot: Crear contacto sync",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1560,
+          560
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        },
+        "parameters": {
+          "method": "POST",
+          "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/contacts",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"name\": \"{{ $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        }
+      },
+      {
+        "id": "prepare-created-contact-sync",
+        "name": "Preparar contacto creado sync",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1780,
+          560
+        ],
+        "parameters": {
+          "jsCode": "const base = $('Resolver contactId').first().json;\nconst created = $input.first().json;\nconst contactId = created.id ?? created.payload?.contact?.id ?? created.contact?.id ?? null;\nreturn [{ json: { ...base, contactId } }];"
+        }
+      },
+      {
+        "id": "chatwoot-create-conversation-sync",
+        "name": "Chatwoot: Crear conversacion sync",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2000,
+          560
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "N4CEos0e29NOLCXU",
+            "name": "Chatwoot"
+          }
+        },
+        "parameters": {
+          "method": "POST",
+          "url": "https://chatwoot.adnexum.net/api/v1/accounts/2/conversations",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"inbox_id\": 2,\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+          "options": {},
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth"
+        }
+      },
+      {
+        "id": "prepare-created-conversation-sync",
+        "name": "Preparar conversacion creada sync",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2220,
+          560
+        ],
+        "parameters": {
+          "jsCode": "function firstJson(name) {\n  try { return $(name).first()?.json ?? null; } catch { return null; }\n}\nconst base = firstJson('Preparar contacto creado sync') ?? firstJson('Resolver convId') ?? firstJson('Resolver contactId') ?? {};\nconst created = $input.first().json;\nconst chatwootConversationId = created.id ?? created.payload?.id ?? created.conversation?.id ?? null;\nreturn [{ json: { ...base, chatwootConversationId } }];"
+        }
+      }
+    ],
+    "connections": {
+      "CRM Estado Webhook": {
+        "main": [
+          [
+            {
+              "node": "ACK 200",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Mapear estado -> etiqueta",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mapear estado -> etiqueta": {
+        "main": [
+          [
+            {
+              "node": "Tiene convId?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tiene convId?": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Obtener etiquetas actuales",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Chatwoot: Buscar por phone",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Buscar por phone": {
+        "main": [
+          [
+            {
+              "node": "Resolver contactId",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resolver contactId": {
+        "main": [
+          [
+            {
+              "node": "Tiene contactId?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Tiene contactId?": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Conversaciones del contacto",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Chatwoot: Crear contacto sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Conversaciones del contacto": {
+        "main": [
+          [
+            {
+              "node": "Resolver convId",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resolver convId": {
+        "main": [
+          [
+            {
+              "node": "Conv resuelta?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Conv resuelta?": {
+        "main": [
+          [
+            {
+              "node": "CRM: Guardar convId resuelto",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Chatwoot: Obtener etiquetas actuales",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Chatwoot: Crear conversacion sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Obtener etiquetas actuales": {
+        "main": [
+          [
+            {
+              "node": "Construir etiquetas nuevas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Construir etiquetas nuevas": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Actualizar etiquetas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Crear contacto sync": {
+        "main": [
+          [
+            {
+              "node": "Preparar contacto creado sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar contacto creado sync": {
+        "main": [
+          [
+            {
+              "node": "Chatwoot: Crear conversacion sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Chatwoot: Crear conversacion sync": {
+        "main": [
+          [
+            {
+              "node": "Preparar conversacion creada sync",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Preparar conversacion creada sync": {
+        "main": [
+          [
+            {
+              "node": "CRM: Guardar convId resuelto",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Chatwoot: Obtener etiquetas actuales",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Tomas Bravo",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-05-12T17:42:18.890Z",
+        "id": 339,
+        "workflowId": "U8R2KLoiTsb7HwVD",
+        "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+        "event": "deactivated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T17:42:18.905Z",
+        "id": 340,
+        "workflowId": "U8R2KLoiTsb7HwVD",
+        "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+        "event": "activated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T18:18:23.240Z",
+        "id": 346,
+        "workflowId": "U8R2KLoiTsb7HwVD",
+        "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+        "event": "deactivated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      },
+      {
+        "createdAt": "2026-05-12T18:18:23.252Z",
+        "id": 347,
+        "workflowId": "U8R2KLoiTsb7HwVD",
+        "versionId": "07c1e449-e4b6-44d8-a279-4db5a4ff60c7",
+        "event": "activated",
+        "userId": "d206898d-9694-4b84-8686-009910d086bc"
+      }
+    ]
+  }
+}

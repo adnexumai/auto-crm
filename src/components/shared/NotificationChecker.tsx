@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useCallback } from "react";
+import { withBasePath } from "@/lib/paths";
 
 export function NotificationChecker() {
   const checkFollowUps = useCallback(async () => {
@@ -10,14 +11,14 @@ export function NotificationChecker() {
     if (Notification.permission !== "granted") return;
 
     try {
-      const res = await fetch("/api/followups");
+      const res = await fetch(withBasePath("/api/followups"));
       const data = await res.json();
       const overdueCount = data.overdue?.length || 0;
 
       if (overdueCount > 0) {
         new Notification("Auto-CRM", {
           body: `Tienes ${overdueCount} seguimiento${overdueCount > 1 ? "s" : ""} vencido${overdueCount > 1 ? "s" : ""}`,
-          icon: "/favicon.ico",
+          icon: withBasePath("/favicon.ico"),
           tag: "crm-followup", // Prevents duplicate notifications
         });
       }

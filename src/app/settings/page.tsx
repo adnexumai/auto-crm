@@ -12,9 +12,11 @@ import {
   Webhook,
   Bell,
   Copy,
+  MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { NotificationToggle } from "@/components/shared/NotificationToggle";
+import { withBasePath } from "@/lib/paths";
 import type { CrmConfig } from "@/types";
 
 export default function SettingsPage() {
@@ -29,44 +31,34 @@ export default function SettingsPage() {
       .then(setConfig)
       .catch(() => {});
 
-    fetch("/api/pipeline")
+    fetch(withBasePath("/api/pipeline"))
       .then((r) => r.json())
       .then(setStages);
   }, []);
 
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "https://tu-dominio.com";
+
   const commands = [
-    {
-      name: "/setup",
-      description: "Configurar CRM para tu negocio",
-    },
-    {
-      name: "/add-lead",
-      description: "Agregar un lead de forma conversacional",
-    },
-    {
-      name: "/analyze-pipeline",
-      description: "Analizar pipeline y obtener recomendaciones",
-    },
-    {
-      name: "/daily-briefing",
-      description: "Resumen diario de ventas",
-    },
-    {
-      name: "/import-contacts",
-      description: "Importar contactos desde CSV",
-    },
-    {
-      name: "/customize",
-      description: "Re-personalizar tu CRM",
-    },
+    { name: "/setup", description: "Configurar CRM para tu negocio" },
+    { name: "/add-lead", description: "Agregar un lead de forma conversacional" },
+    { name: "/analyze-pipeline", description: "Analizar pipeline y obtener recomendaciones" },
+    { name: "/daily-briefing", description: "Resumen diario de ventas" },
+    { name: "/import-contacts", description: "Importar contactos desde CSV" },
+    { name: "/customize", description: "Re-personalizar tu CRM" },
   ];
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiada`);
+  }
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Configuracion</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Configuración</h1>
         <p className="text-muted-foreground">
-          Configuracion del CRM y comandos disponibles
+          Adnexum AI CRM · Ajustes generales e integraciones
         </p>
       </div>
 
@@ -97,9 +89,7 @@ export default function SettingsPage() {
                 <Separator />
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Idioma</span>
-                  <span>
-                    {config.preferences.language === "es" ? "Espanol" : "Ingles"}
-                  </span>
+                  <span>{config.preferences.language === "es" ? "Español" : "Inglés"}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Tema</span>
@@ -108,8 +98,7 @@ export default function SettingsPage() {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Ejecuta <code>/setup</code> en Claude Code para configurar tu
-                negocio.
+                Ejecuta <code>/setup</code> en Claude Code para configurar tu negocio.
               </p>
             )}
           </CardContent>
@@ -142,51 +131,70 @@ export default function SettingsPage() {
               ))}
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              Usa <code>/customize</code> en Claude Code para modificar las
-              etapas.
+              Usa <code>/customize</code> en Claude Code para modificar las etapas.
             </p>
           </CardContent>
         </Card>
 
-        {/* Webhook config */}
-        <Card className="lg:col-span-2">
+        {/* Webhook CRM */}
+        <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Webhook className="h-4 w-4" />
-              Webhook
+              Webhook CRM (leads entrantes)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Recibe leads automaticamente desde formularios, landing pages, o cualquier herramienta que soporte webhooks.
+              Recibe leads automáticamente desde formularios, landing pages o cualquier herramienta que soporte webhooks.
             </p>
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <code className="flex-1 text-sm bg-muted p-2 rounded font-mono truncate">
-                  POST {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/webhook
-                </code>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(
-                      `${window.location.origin}/api/webhook`
-                    );
-                    toast.success("URL copiada");
-                  }}
-                  className="p-2 rounded hover:bg-muted cursor-pointer"
-                  title="Copiar URL"
-                >
-                  <Copy className="h-4 w-4 text-muted-foreground" />
-                </button>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50 text-xs font-mono">
-                <p className="text-muted-foreground mb-1">Ejemplo:</p>
-                <p>curl -X POST {typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/webhook \</p>
-                <p className="pl-4">-H &quot;Content-Type: application/json&quot; \</p>
-                <p className="pl-4">-d &apos;{`{"name":"Juan","email":"j@test.com","phone":"555-1234"}`}&apos;</p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Soporta campos en espanol e ingles: name/nombre, email/correo, phone/telefono, company/empresa, notes/notas
-              </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm bg-muted p-2 rounded font-mono truncate">
+                POST {origin}/api/webhook
+              </code>
+              <button
+                onClick={() => copyToClipboard(`${origin}/api/webhook`, "URL")}
+                className="p-2 rounded hover:bg-muted cursor-pointer"
+                title="Copiar URL"
+              >
+                <Copy className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Campos soportados: name/nombre, email/correo, phone/telefono, company/empresa, notes/notas
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Webhook YCloud Prospección */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-green-500" />
+              Webhook YCloud (WhatsApp)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Captura automática de conversaciones WhatsApp para el módulo de Prospección.
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-sm bg-muted p-2 rounded font-mono truncate">
+                POST {origin}/api/prospeccion/webhook
+              </code>
+              <button
+                onClick={() => copyToClipboard(`${origin}/api/prospeccion/webhook`, "URL")}
+                className="p-2 rounded hover:bg-muted cursor-pointer"
+                title="Copiar URL"
+              >
+                <Copy className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p>• Configura esta URL en el panel de YCloud → Webhooks</p>
+              <p>• Soporta: texto, audio (Whisper), imagen, sticker, documentos</p>
+              <p>• El análisis IA corre automáticamente todos los días a las 8am</p>
+              <p>• Para activar validación HMAC: setear <code className="bg-muted px-1 rounded">YCLOUD_WEBHOOK_SECRET</code> en Vercel</p>
             </div>
           </CardContent>
         </Card>
@@ -202,7 +210,7 @@ export default function SettingsPage() {
           <CardContent className="space-y-3">
             <NotificationToggle />
             <p className="text-xs text-muted-foreground">
-              Las notificaciones te avisan cuando tienes seguimientos vencidos. Se verifican cada 5 minutos mientras el CRM esta abierto.
+              Las notificaciones te avisan cuando tenés seguimientos vencidos. Se verifican cada 5 minutos mientras el CRM está abierto.
             </p>
           </CardContent>
         </Card>
@@ -217,9 +225,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Estos comandos estan disponibles cuando abres el proyecto en Claude
-              Code. Escribe el comando directamente en el terminal de Claude
-              Code.
+              Disponibles cuando abrís el proyecto en Claude Code.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {commands.map((cmd) => (

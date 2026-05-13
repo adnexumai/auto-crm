@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Plus, Briefcase, Download } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/constants";
 import { DealForm } from "@/components/deals/DealForm";
+import { withBasePath } from "@/lib/paths";
 
 interface DealRow {
   id: string;
@@ -36,7 +37,7 @@ export default function DealsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/deals")
+    fetch(withBasePath("/api/deals"))
       .then((res) => res.json())
       .then((data) => {
         setDeals(data);

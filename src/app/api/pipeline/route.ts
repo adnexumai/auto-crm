@@ -4,13 +4,12 @@ import { pipelineStages, deals, contacts } from "@/db/schema";
 import { eq, asc } from "drizzle-orm";
 
 export async function GET() {
-  const stages = db
+  const stages = await db
     .select()
     .from(pipelineStages)
-    .orderBy(asc(pipelineStages.order))
-    .all();
+    .orderBy(asc(pipelineStages.order));
 
-  const allDeals = db
+  const allDeals = await db
     .select({
       id: deals.id,
       title: deals.title,
@@ -26,8 +25,7 @@ export async function GET() {
       contactTemperature: contacts.temperature,
     })
     .from(deals)
-    .leftJoin(contacts, eq(deals.contactId, contacts.id))
-    .all();
+    .leftJoin(contacts, eq(deals.contactId, contacts.id));
 
   const pipeline = stages.map((stage) => ({
     ...stage,
@@ -47,25 +45,23 @@ export async function PUT(request: NextRequest) {
 
   // Update a single deal's stage (drag and drop)
   if (body.dealId && body.stageId) {
-    const existing = db.select().from(deals).where(eq(deals.id, body.dealId)).get();
+    const [existing] = await db.select().from(deals).where(eq(deals.id, body.dealId));
     if (!existing) {
       return NextResponse.json({ error: "Deal no encontrado" }, { status: 404 });
     }
 
-    const result = db
+    const [result] = await db
       .update(deals)
       .set({ stageId: body.stageId, updatedAt: new Date() })
       .where(eq(deals.id, body.dealId))
-      .returning()
-      .get();
+      .returning();
 
     return NextResponse.json(result);
   }
 
   // Bulk update stages (from /setup or /customize)
   if (body.stages && Array.isArray(body.stages)) {
-    // Delete existing stages (only if no deals reference them)
-    const existingDeals = db.select().from(deals).all();
+    const existingDeals = await db.select().from(deals);
     if (existingDeals.length > 0) {
       return NextResponse.json(
         {
@@ -76,25 +72,22 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    db.delete(pipelineStages).run();
+    await db.delete(pipelineStages);
 
     for (const stage of body.stages) {
-      db.insert(pipelineStages)
-        .values({
-          name: stage.name,
-          order: stage.order,
-          color: stage.color || "#64748b",
-          isWon: stage.isWon || false,
-          isLost: stage.isLost || false,
-        })
-        .run();
+      await db.insert(pipelineStages).values({
+        name: stage.name,
+        order: stage.order,
+        color: stage.color || "#64748b",
+        isWon: stage.isWon || false,
+        isLost: stage.isLost || false,
+      });
     }
 
-    const updated = db
+    const updated = await db
       .select()
       .from(pipelineStages)
-      .orderBy(asc(pipelineStages.order))
-      .all();
+      .orderBy(asc(pipelineStages.order));
 
     return NextResponse.json(updated);
   }

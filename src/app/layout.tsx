@@ -13,9 +13,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Auto-CRM - Tu CRM con Inteligencia Artificial",
+  title: "Adnexum AI CRM",
   description:
-    "CRM conversacional con pipeline de ventas, clasificacion automatica de leads y seguimiento inteligente. Construido con Claude Code.",
+    "CRM de Adnexum — pipeline de ventas, prospección WhatsApp, análisis IA y seguimiento inteligente.",
 };
 
 export default function RootLayout({

@@ -4,7 +4,7 @@ import { activities, contacts } from "@/db/schema";
 import { eq, isNull, asc } from "drizzle-orm";
 
 export async function GET() {
-  const pendingFollowups = db
+  const pendingFollowups = await db
     .select({
       id: activities.id,
       type: activities.type,
@@ -20,8 +20,7 @@ export async function GET() {
     .from(activities)
     .leftJoin(contacts, eq(activities.contactId, contacts.id))
     .where(isNull(activities.completedAt))
-    .orderBy(asc(activities.scheduledAt))
-    .all();
+    .orderBy(asc(activities.scheduledAt));
 
   const now = Date.now() / 1000;
 

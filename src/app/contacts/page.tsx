@@ -5,6 +5,7 @@ import { ContactsTable } from "@/components/contacts/ContactsTable";
 import { ContactForm } from "@/components/contacts/ContactForm";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { withBasePath } from "@/lib/paths";
 import type { Contact } from "@/types";
 
 export default function ContactsPage() {
@@ -13,7 +14,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
 
   const loadContacts = () => {
-    fetch("/api/contacts")
+    fetch(withBasePath("/api/contacts"))
       .then((res) => res.json())
       .then((data) => {
         setContacts(data);

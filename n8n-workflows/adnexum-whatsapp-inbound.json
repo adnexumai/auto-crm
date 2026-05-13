@@ -1,0 +1,1251 @@
+{
+  "name": "Adnexum — WhatsApp Inbound (YCloud → CRM + Chatwoot + Setter IA)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "adnexum-whatsapp-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "YCloud Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-200",
+      "name": "ACK 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        460,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer campos relevantes y definir qué camino sigue cada evento\nconst body = $input.first().json.body ?? $input.first().json;\nconst type = body.type ?? '';\n\nfunction getContent(msg = {}) {\n  if (msg.text?.body) return msg.text.body;\n  if (msg.image?.caption) return `[imagen] ${msg.image.caption}`;\n  if (msg.image) return '[imagen]';\n  if (msg.video?.caption) return `[video] ${msg.video.caption}`;\n  if (msg.video) return '[video]';\n  if (msg.audio) return '[audio]';\n  if (msg.voice) return '[audio de voz]';\n  if (msg.document?.filename) return `[documento: ${msg.document.filename}]`;\n  if (msg.document) return '[documento]';\n  if (msg.sticker) return '[sticker]';\n  if (msg.reaction?.emoji) return `[reaccion: ${msg.reaction.emoji}]`;\n  return `[${msg.type ?? 'mensaje'}]`;\n}\n\nfunction getMediaUrl(msg = {}) {\n  return msg.audio?.link || msg.voice?.link || msg.image?.link || msg.video?.link || null;\n}\n\nfunction buildResult({ phone, name = '', content, timestamp, mediaUrl = null, msgType = 'text', eventType, syncChatwoot, crmPayload, dedupeKey, direction }) {\n  if (!phone || !dedupeKey) {\n    return [{ json: { skip: true, reason: 'sin phone o dedupeKey' } }];\n  }\n\n  return [{\n    json: {\n      phone,\n      name,\n      content,\n      timestamp: timestamp || new Date().toISOString(),\n      mediaUrl,\n      msgType,\n      eventType,\n      syncChatwoot,\n      crmPayload,\n      dedupeKey,\n      direction\n    }\n  }];\n}\n\nif (type === 'whatsapp.inbound_message.received') {\n  const msg = body.whatsappInboundMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.from ?? '',\n    name: msg.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: true,\n    crmPayload: { type, whatsappInboundMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'incoming'\n  });\n}\n\nif (type === 'whatsapp.smb.message.echoes') {\n  const msg = body.whatsappMessage ?? {};\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.message.updated') {\n  const msg = body.whatsappMessage ?? {};\n  if (msg.status !== 'sent') {\n    return [{ json: { skip: true, reason: `message.updated ignorado (${msg.status ?? 'sin status'})` } }];\n  }\n\n  const wamid = msg.wamid ?? msg.id ?? '';\n  return buildResult({\n    phone: msg.to ?? '',\n    content: getContent(msg),\n    timestamp: msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString(),\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: { type, whatsappMessage: msg },\n    dedupeKey: wamid ? `wamid:${wamid}` : '',\n    direction: 'outgoing'\n  });\n}\n\nif (type === 'whatsapp.smb.history') {\n  const inbound = body.whatsappInboundMessage ?? null;\n  const outbound = body.whatsappMessage ?? null;\n  const msg = inbound ?? outbound ?? {};\n  const phone = inbound?.from ?? outbound?.to ?? '';\n  const timestamp = msg.sendTime ?? msg.createTime ?? msg.timestamp ?? new Date().toISOString();\n  const wamid = msg.wamid ?? msg.id ?? '';\n  const direction = inbound ? 'incoming' : 'outgoing';\n  const dedupeKey = wamid || phone ? `history:${direction}:${wamid || phone}:${timestamp}` : '';\n\n  return buildResult({\n    phone,\n    name: inbound?.customerProfile?.name ?? '',\n    content: getContent(msg),\n    timestamp,\n    mediaUrl: getMediaUrl(msg),\n    msgType: msg.type ?? 'text',\n    eventType: type,\n    syncChatwoot: false,\n    crmPayload: body,\n    dedupeKey,\n    direction\n  });\n}\n\nreturn [{ json: { skip: true, reason: `tipo no manejado: ${type}` } }];"
+      },
+      "id": "extract-fields",
+      "name": "Extraer campos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-skip",
+      "name": "¿Skip?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.dedupeKey }}",
+        "options": {}
+      },
+      "id": "redis-check-dup",
+      "name": "Redis: ¿Duplicado?",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        900,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "dup-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-dup",
+      "name": "¿Ya procesado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ $('Extraer campos').item.json.dedupeKey }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 86400,
+        "options": {}
+      },
+      "id": "redis-mark",
+      "name": "Redis: Marcar procesado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        460
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_BASE_URL }}/api/webhook/ycloud",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-adnexum-forwarded-by",
+              "value": "n8n"
+            },
+            {
+              "name": "x-adnexum-forward-secret",
+              "value": "={{ $env.N8N_FORWARD_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Extraer campos').item.json.crmPayload }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "crm-webhook",
+      "name": "CRM: Grabar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1560,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion?search={{ encodeURIComponent($('Extraer campos').item.json.phone) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "crm-get-prospect",
+      "name": "CRM: Obtener prospecto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1780,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extraer primer resultado\nconst data = $input.first().json;\nconst items = data.items ?? [];\nconst prospect = items[0] ?? null;\nif (!prospect) {\n  return [{ json: { noProspect: true } }];\n}\nreturn [{ json: { prospect } }];"
+      },
+      "id": "extract-prospect",
+      "name": "Extraer prospecto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "sync-chatwoot",
+              "leftValue": "={{ $('Extraer campos').item.json.syncChatwoot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-sync-chatwoot",
+      "name": "¿Sync Chatwoot?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $('Extraer campos').item.json.phone }}"
+            },
+            {
+              "name": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "chatwoot-search-contact",
+      "name": "Chatwoot: Buscar contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2220,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const search = $input.first().json;\nconst contacts = search.payload ?? [];\nconst prospect = $('Extraer prospecto').first().json.prospect;\nconst phone = $('Extraer campos').first().json.phone;\nconst name = $('Extraer campos').first().json.name;\nconst content = $('Extraer campos').first().json.content;\nconst msgType = $('Extraer campos').first().json.msgType;\n\nlet existingContactId = null;\nlet existingConvId = prospect?.chatwootConversationId ?? null;\n\nif (contacts.length > 0) {\n  existingContactId = contacts[0].id;\n}\n\nreturn [{\n  json: {\n    phone,\n    name,\n    content,\n    msgType,\n    prospect,\n    existingContactId,\n    existingConvId: existingConvId || null,\n    contactId: existingContactId,\n    convId: existingConvId || null,\n    needCreateContact: !existingContactId && !existingConvId,\n    needLookupConversation: !!existingContactId && !existingConvId\n  }\n}];"
+      },
+      "id": "chatwoot-decide",
+      "name": "Decidir Chatwoot flow",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-contact",
+              "leftValue": "={{ $json.needCreateContact }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-create-contact",
+      "name": "¿Crear contacto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2660,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.name || $json.phone }}\",\n  \"phone_number\": \"{{ $json.phone }}\"\n}",
+        "options": {}
+      },
+      "id": "chatwoot-create-contact",
+      "name": "Chatwoot: Crear contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"inbox_id\": {{ $env.CHATWOOT_INBOX_ID }},\n  \"contact_id\": {{ $json.contactId }},\n  \"status\": \"open\"\n}",
+        "options": {}
+      },
+      "id": "chatwoot-create-conv",
+      "name": "Chatwoot: Crear conversación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3760,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $input.first().json;\nconst createdConversation = $('Chatwoot: Crear conversación').all();\nconst convId = createdConversation.length > 0\n  ? createdConversation[0].json.id\n  : (source.convId ?? source.existingConvId ?? null);\n\nif (!convId) {\n  return [];\n}\n\nconst prospect = source.prospect ?? {};\nconst phone = source.phone ?? $('Extraer campos').first().json.phone;\nconst name = source.name ?? $('Extraer campos').first().json.name;\nconst content = source.content ?? $('Extraer campos').first().json.content;\n\nreturn [{\n  json: {\n    convId,\n    contactId: source.contactId ?? source.existingContactId ?? null,\n    prospectId: prospect.id ?? null,\n    prospectPhone: phone,\n    phone,\n    name,\n    content,\n    estado: prospect.estado ?? 'enviado',\n    score: prospect.oportunidadScore ?? 0,\n    resumenIa: prospect.resumenIa ?? ''\n  }\n}];"
+      },
+      "id": "unify-conv",
+      "name": "Unificar convId",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3980,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.CRM_BASE_URL }}/api/prospeccion/{{ $json.prospectId }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"chatwootConversationId\": \"{{ $json.convId }}\" }",
+        "options": {}
+      },
+      "id": "crm-save-conv-id",
+      "name": "CRM: Guardar convId",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4200,
+        320
+      ],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $json.content }}\",\n  \"message_type\": \"incoming\",\n  \"private\": false\n}",
+        "options": {}
+      },
+      "id": "chatwoot-post-msg",
+      "name": "Chatwoot: Agregar mensaje",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4200,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Etiqueta según estado CRM\nconst ESTADO_LABEL = {\n  enviado: 'prospecto-nuevo',\n  contactado: 'contactado',\n  respondio: 'respondio',\n  agendado: 'llamada-agendada',\n  seguimiento: 'en-seguimiento',\n  cerrado_positivo: 'cliente',\n  cerrado_negativo: 'descartado'\n};\nconst estado = $json.estado ?? 'enviado';\nconst label = ESTADO_LABEL[estado] ?? 'prospecto-nuevo';\nreturn [{ json: { ...$json, label } }];"
+      },
+      "id": "map-label",
+      "name": "Mapear etiqueta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $json.convId }}/labels",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"labels\": [\"{{ $json.label }}\"] }",
+        "options": {}
+      },
+      "id": "chatwoot-set-label",
+      "name": "Chatwoot: Poner etiqueta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3980,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "setter-cond",
+              "leftValue": "={{ $env.ENABLE_SETTER_IA === 'true' && $json.estado !== 'cerrado_positivo' && $json.estado !== 'cerrado_negativo' && $json.score < 8 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-setter",
+      "name": "¿Aplicar setter IA?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4200,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "=setter-rate:{{ $json.phone }}",
+        "options": {}
+      },
+      "id": "redis-rate-limit",
+      "name": "Redis: Rate limit setter",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        4420,
+        380
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "rate-check",
+              "leftValue": "={{ $json.value }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-rate-ok",
+      "name": "¿Puede responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        4640,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "Sos el setter de Adnexum, agencia de automatización e IA B2B en Argentina.\nTu objetivo: calificar prospectos, despertar interés y agendar una llamada de descubrimiento con Tomás.\n\nProceso de ventas Adnexum:\n1. Elevar nivel de conciencia (identificar problema de automatización)\n2. Enviar documento A→B personalizado\n3. Agendar llamada de descubrimiento (30 min)\n4. Pre-llamada: recordatorio + show-up rate\n5. Llamada con guión de diagnóstico\n6. Análisis ROI + costo de oportunidad\n7. Llamada de venta (PsycoSelling)\n8. Contrato\n\nReglas:\n- Mensajes cortos, 1-2 líneas máximo\n- Tono argentino, directo, sin emojis en exceso\n- Si preguntan precios: \"Depende del proceso que diseñemos juntos, ¿tenés 20 minutos para contarme más del negocio?\"\n- Si el prospecto respondió con interés: proponer llamada directamente\n- Si el mensaje es spam/irrelevante/bot: responder exactamente NO_RESPONDER\n- Si el score es menor a 4: responder exactamente NO_RESPONDER\n\nRespondé SOLO con el mensaje a enviar o con NO_RESPONDER. Sin explicaciones."
+            },
+            {
+              "role": "user",
+              "content": "=Negocio: {{ $('Unificar convId').first().json.resumenIa || 'desconocido' }}\nEstado: {{ $('Unificar convId').first().json.estado }}\nScore: {{ $('Unificar convId').first().json.score }}/10\nÚltimo mensaje recibido: {{ $('Extraer campos').first().json.content }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200
+        }
+      },
+      "id": "openai-setter",
+      "name": "OpenAI: Setter IA",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [
+        4860,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "name": "OpenAI Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "no-responder",
+              "leftValue": "={{ $json.message.content }}",
+              "rightValue": "NO_RESPONDER",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-responder",
+      "name": "¿Responder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Delay aleatorio humanizado (1-4 segundos)\nconst delay = Math.floor(1000 + Math.random() * 3000);\nawait new Promise(r => setTimeout(r, delay));\nreturn $input.all();"
+      },
+      "id": "random-delay",
+      "name": "Delay random",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5300,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ycloud.com/v2/whatsapp/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.YCLOUD_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $('Extraer campos').first().json.phone }}\",\n  \"type\": \"text\",\n  \"text\": { \"body\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\" }\n}",
+        "options": {}
+      },
+      "id": "ycloud-send",
+      "name": "YCloud: Enviar respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5520,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "=setter-rate:{{ $('Extraer campos').first().json.phone }}",
+        "value": "1",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 7200,
+        "options": {}
+      },
+      "id": "redis-mark-rate",
+      "name": "Redis: Marcar enviado",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        5740,
+        220
+      ],
+      "credentials": {
+        "redis": {
+          "name": "Redis Adnexum"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/conversations/{{ $('Unificar convId').first().json.convId }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"{{ $('OpenAI: Setter IA').first().json.message.content }}\",\n  \"message_type\": \"outgoing\",\n  \"private\": false\n}",
+        "options": {}
+      },
+      "id": "chatwoot-outgoing",
+      "name": "Chatwoot: Registrar saliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5960,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.CHATWOOT_BASE_URL }}/api/v1/accounts/{{ $env.CHATWOOT_ACCOUNT_ID }}/contacts/{{ $json.existingContactId }}/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api_access_token",
+              "value": "={{ $env.CHATWOOT_API_TOKEN }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "chatwoot-list-convs",
+      "name": "Chatwoot: Conversaciones contacto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-lookup-conversation",
+              "leftValue": "={{ $json.needLookupConversation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-search-convs",
+      "name": "Check: Buscar conversaciones",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        540
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\n\nif (source.existingConvId) {\n  return [{\n    json: {\n      ...source,\n      contactId: source.existingContactId ?? source.contactId ?? null,\n      convId: source.existingConvId,\n      needCreateConversation: false\n    }\n  }];\n}\n\nconst conversations = $input.first().json.payload ?? [];\nconst preferredInboxId = Number($env.CHATWOOT_INBOX_ID || 0);\nconst sorted = [...conversations].sort((a, b) => Number(b.last_activity_at ?? b.updated_at ?? b.id ?? 0) - Number(a.last_activity_at ?? a.updated_at ?? a.id ?? 0));\nconst preferred = preferredInboxId ? sorted.filter((conversation) => Number(conversation.inbox_id) === preferredInboxId) : sorted;\nconst pool = preferred.length ? preferred : sorted;\nconst chosen = pool.find((conversation) => conversation.status === 'open') ?? pool[0] ?? null;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: source.existingContactId ?? source.contactId ?? null,\n    convId: chosen?.id ?? null,\n    needCreateConversation: !chosen\n  }\n}];"
+      },
+      "id": "resolve-existing-conv",
+      "name": "Resolver conversacion existente",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3320,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Decidir Chatwoot flow').first().json;\nconst created = $input.first().json;\n\nreturn [{\n  json: {\n    ...source,\n    contactId: created.id,\n    convId: null,\n    needCreateConversation: true\n  }\n}];"
+      },
+      "id": "prepare-created-contact",
+      "name": "Preparar contacto creado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "need-conversation",
+              "leftValue": "={{ $json.needCreateConversation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if-create-conv",
+      "name": "Check: Crear conversacion",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3540,
+        460
+      ]
+    }
+  ],
+  "connections": {
+    "YCloud Webhook": {
+      "main": [
+        [
+          {
+            "node": "ACK 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Extraer campos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer campos": {
+      "main": [
+        [
+          {
+            "node": "¿Skip?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Skip?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: ¿Duplicado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: ¿Duplicado?": {
+      "main": [
+        [
+          {
+            "node": "¿Ya procesado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Ya procesado?": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Redis: Marcar procesado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Marcar procesado": {
+      "main": [
+        [
+          {
+            "node": "CRM: Grabar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM: Grabar mensaje": {
+      "main": [
+        [
+          {
+            "node": "CRM: Obtener prospecto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM: Obtener prospecto": {
+      "main": [
+        [
+          {
+            "node": "Extraer prospecto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer prospecto": {
+      "main": [
+        [
+          {
+            "node": "¿Sync Chatwoot?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Sync Chatwoot?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Buscar contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Chatwoot: Buscar contacto": {
+      "main": [
+        [
+          {
+            "node": "Decidir Chatwoot flow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decidir Chatwoot flow": {
+      "main": [
+        [
+          {
+            "node": "¿Crear contacto?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Crear contacto?": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check: Buscar conversaciones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear contacto": {
+      "main": [
+        [
+          {
+            "node": "Preparar contacto creado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Crear conversación": {
+      "main": [
+        [
+          {
+            "node": "Unificar convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unificar convId": {
+      "main": [
+        [
+          {
+            "node": "CRM: Guardar convId",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Chatwoot: Agregar mensaje",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mapear etiqueta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mapear etiqueta": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Poner etiqueta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Poner etiqueta": {
+      "main": [
+        [
+          {
+            "node": "¿Aplicar setter IA?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Aplicar setter IA?": {
+      "main": [
+        [
+          {
+            "node": "Redis: Rate limit setter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Redis: Rate limit setter": {
+      "main": [
+        [
+          {
+            "node": "¿Puede responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Puede responder?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Setter IA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "OpenAI: Setter IA": {
+      "main": [
+        [
+          {
+            "node": "¿Responder?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Responder?": {
+      "main": [
+        [
+          {
+            "node": "Delay random",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Delay random": {
+      "main": [
+        [
+          {
+            "node": "YCloud: Enviar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YCloud: Enviar respuesta": {
+      "main": [
+        [
+          {
+            "node": "Redis: Marcar enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis: Marcar enviado": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Registrar saliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chatwoot: Conversaciones contacto": {
+      "main": [
+        [
+          {
+            "node": "Resolver conversacion existente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar contacto creado": {
+      "main": [
+        [
+          {
+            "node": "Check: Crear conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Buscar conversaciones": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Conversaciones contacto",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolver conversacion existente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolver conversacion existente": {
+      "main": [
+        [
+          {
+            "node": "Check: Crear conversacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check: Crear conversacion": {
+      "main": [
+        [
+          {
+            "node": "Chatwoot: Crear conversación",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unificar convId",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "_comment": {
+    "env_vars_needed": [
+      "CRM_BASE_URL — URL del CRM en Vercel, ej: https://adnexumcrm.vercel.app",
+      "CHATWOOT_BASE_URL — ej: https://chatwoot.adnexum.net",
+      "CHATWOOT_API_TOKEN — token de API de Chatwoot",
+      "CHATWOOT_ACCOUNT_ID — ID numérico de la cuenta Chatwoot",
+      "CHATWOOT_INBOX_ID — ID del inbox de YCloud en Chatwoot",
+      "YCLOUD_API_KEY — API key de YCloud",
+      "Redis credential named 'Redis Adnexum' — configurar en n8n Credentials",
+      "OpenAI credential named 'OpenAI Adnexum' — configurar en n8n Credentials"
+    ]
+  }
+}

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { formatRelativeDate, formatDate } from "@/lib/constants";
 import { ACTIVITY_TYPE_CONFIG } from "@/lib/constants";
+import { withBasePath } from "@/lib/paths";
 import type { ActivityType } from "@/types";
 
 const typeIcons: Record<string, typeof Phone> = {
@@ -55,8 +56,8 @@ export default function ActivitiesPage() {
 
   const loadData = () => {
     Promise.all([
-      fetch("/api/activities").then((r) => r.json()),
-      fetch("/api/followups").then((r) => r.json()),
+      fetch(withBasePath("/api/activities")).then((r) => r.json()),
+      fetch(withBasePath("/api/followups")).then((r) => r.json()),
     ]).then(([acts, fups]) => {
       setActivities(acts);
       setFollowUps(fups);
