@@ -1,204 +1,146 @@
-// [FUSION] Portado desde adnexum-os - Webhook receptor YCloud WhatsApp (Drizzle + Whisper + n8n)
+// YCloud Webhook — recibe eventos WhatsApp y registra en Supabase
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectos, prospectosMensajes } from "@/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 import {
   verificarFirma,
   extraerContenido,
   extraerMediaUrl,
   postN8n,
 } from "@/lib/prospeccion/ycloud";
-import { transcribirAudioEnBackground } from "@/lib/prospeccion/whisper";
 
 export const dynamic = "force-dynamic";
 
 function isTrustedForward(req: NextRequest) {
   const forwardedBy = req.headers.get("x-adnexum-forwarded-by");
   if (forwardedBy !== "n8n") return false;
-
   const configuredSecret = process.env.N8N_FORWARD_SECRET?.trim();
   if (!configuredSecret) return true;
-
   return req.headers.get("x-adnexum-forward-secret") === configuredSecret;
 }
 
-function parseTimestamp(value: string | number | undefined): Date {
-  if (!value) return new Date();
+function parseTimestamp(value: string | number | undefined): string {
+  if (!value) return new Date().toISOString();
 
   if (typeof value === "number") {
     const normalized = value < 1_000_000_000_000 ? value * 1000 : value;
     const d = new Date(normalized);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
 
   const numeric = Number(value);
-  if (!Number.isNaN(numeric) && value.trim() !== "") {
+  if (!Number.isNaN(numeric) && String(value).trim() !== "") {
     const normalized = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
     const d = new Date(normalized);
-    return isNaN(d.getTime()) ? new Date() : d;
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
 
   const d = new Date(value);
-  return isNaN(d.getTime()) ? new Date() : d;
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
-async function ensureProspecto(
+async function upsertProspecto(
   telefono: string,
   nombreContacto?: string,
-  activityAt = new Date()
-): Promise<void> {
-  const [existing] = await db
-    .select({ id: prospectos.id, nombreContacto: prospectos.nombreContacto })
-    .from(prospectos)
-    .where(eq(prospectos.telefono, telefono));
+  activityAt?: string
+) {
+  const supabase = getSupabase();
+  const now = activityAt || new Date().toISOString();
 
-  if (!existing) {
-    await db
-      .insert(prospectos)
-      .values({
-        telefono,
-        primerContacto: activityAt,
-        ultimoContacto: activityAt,
-        mensajesEnviados: 0,
-        nombreContacto: nombreContacto || "",
-        createdAt: activityAt,
-        updatedAt: activityAt,
-      })
-      .onConflictDoNothing({ target: prospectos.telefono });
-    return;
-  }
+  const { data } = await supabase
+    .from("prospectos")
+    .select("id, nombre_contacto")
+    .eq("telefono", telefono)
+    .maybeSingle();
 
-  if (nombreContacto && !existing.nombreContacto) {
-    await db
-      .update(prospectos)
-      .set({ nombreContacto, updatedAt: activityAt })
-      .where(eq(prospectos.telefono, telefono));
+  if (!data) {
+    await supabase.from("prospectos").insert({
+      telefono,
+      primer_contacto: now,
+      ultimo_contacto: now,
+      mensajes_enviados: 0,
+      nombre_contacto: nombreContacto || "",
+      estado: "enviado",
+      respondio: false,
+    });
+  } else {
+    if (nombreContacto && !data.nombre_contacto) {
+      await supabase
+        .from("prospectos")
+        .update({ nombre_contacto: nombreContacto })
+        .eq("id", data.id);
+    }
   }
 }
 
-async function markOutboundActivity(
-  telefono: string,
-  activityAt = new Date()
-): Promise<void> {
-  await db
-    .update(prospectos)
-    .set({
-      mensajesEnviados: sql`${prospectos.mensajesEnviados} + 1`,
-      ultimoContacto: activityAt,
-      updatedAt: activityAt,
+async function markOutbound(telefono: string, activityAt: string) {
+  const supabase = getSupabase();
+  // Supabase doesn't have rpc for increment, so fetch + update
+  const { data } = await supabase
+    .from("prospectos")
+    .select("mensajes_enviados")
+    .eq("telefono", telefono)
+    .maybeSingle();
+
+  await supabase
+    .from("prospectos")
+    .update({
+      mensajes_enviados: (data?.mensajes_enviados ?? 0) + 1,
+      ultimo_contacto: activityAt,
     })
-    .where(eq(prospectos.telefono, telefono));
+    .eq("telefono", telefono);
 }
 
-async function markInboundActivity(
+async function markInbound(
   telefono: string,
   nombreContacto?: string,
-  activityAt = new Date()
-): Promise<void> {
-  await db
-    .update(prospectos)
-    .set({
+  activityAt?: string
+) {
+  const supabase = getSupabase();
+  await supabase
+    .from("prospectos")
+    .update({
       respondio: true,
       estado: "respondio",
-      ultimoContacto: activityAt,
-      updatedAt: activityAt,
-      ...(nombreContacto ? { nombreContacto } : {}),
+      ultimo_contacto: activityAt || new Date().toISOString(),
+      ...(nombreContacto ? { nombre_contacto: nombreContacto } : {}),
     })
-    .where(eq(prospectos.telefono, telefono));
+    .eq("telefono", telefono);
 }
 
-async function getProspectoByPhone(telefono: string) {
-  const [row] = await db
-    .select({
-      id: prospectos.id,
-      telefono: prospectos.telefono,
-      estado: prospectos.estado,
-      chatwootConversationId: prospectos.chatwootConversationId,
-    })
-    .from(prospectos)
-    .where(eq(prospectos.telefono, telefono));
-
-  return row ?? null;
-}
-
-function triggerClassification(telefono: string) {
-  const baseUrl =
-    process.env.CRM_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.VERCEL_PROJECT_PRODUCTION_URL;
-
-  if (!baseUrl) return;
-
-  const normalizedBaseUrl = baseUrl.startsWith("http")
-    ? baseUrl
-    : `https://${baseUrl}`;
-
-  fetch(`${normalizedBaseUrl}/api/prospeccion/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ telefono, force: true }),
-  }).catch((err) => console.error("[prospecto-auto-classifier]", err));
-}
-
-type MensajeInput = {
+async function registrarMensaje(input: {
   telefono: string;
   direccion: "saliente" | "entrante";
   tipo: string;
-  timestamp: Date;
+  timestamp: string;
   contenido: string;
   nombreContacto: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payloadRaw: Record<string, any>;
   wamid?: string;
-  mediaUrl?: string | null;
-};
+}): Promise<boolean> {
+  const supabase = getSupabase();
 
-async function registrarMensaje(input: MensajeInput): Promise<string | null> {
-  const id = crypto.randomUUID();
-  const values = {
-    id,
+  const row = {
     telefono: input.telefono,
     direccion: input.direccion,
     tipo: input.tipo || "text",
     timestamp: input.timestamp,
     contenido: input.contenido,
-    nombreContacto: input.nombreContacto,
-    payloadRaw: JSON.stringify(input.payloadRaw),
+    nombre_contacto: input.nombreContacto,
+    payload_raw: input.payloadRaw,
     wamid: input.wamid || null,
-    mediaUrl: input.mediaUrl || null,
-    createdAt: new Date(),
   };
 
   if (input.wamid) {
-    const [result] = await db
-      .insert(prospectosMensajes)
-      .values(values)
-      .onConflictDoNothing({ target: prospectosMensajes.wamid })
-      .returning({ id: prospectosMensajes.id });
-    return result?.id ?? null;
+    // Upsert by wamid — ignore if duplicate
+    const { error } = await supabase
+      .from("prospectos_mensajes")
+      .upsert(row, { onConflict: "wamid", ignoreDuplicates: true });
+    return !error;
   }
 
-  const [duplicate] = await db
-    .select({ id: prospectosMensajes.id })
-    .from(prospectosMensajes)
-    .where(
-      and(
-        eq(prospectosMensajes.telefono, input.telefono),
-        eq(prospectosMensajes.direccion, input.direccion),
-        eq(prospectosMensajes.tipo, input.tipo || "text"),
-        eq(prospectosMensajes.contenido, input.contenido),
-        eq(prospectosMensajes.timestamp, input.timestamp)
-      )
-    )
-    .limit(1);
-
-  if (duplicate) {
-    return null;
-  }
-
-  await db.insert(prospectosMensajes).values(values);
-  return id;
+  const { error } = await supabase.from("prospectos_mensajes").insert(row);
+  return !error;
 }
 
 export async function POST(req: NextRequest) {
@@ -224,27 +166,19 @@ export async function POST(req: NextRequest) {
   }
 
   if (!evento?.type) return NextResponse.json({ ok: true });
-
   console.log(`[YCLOUD] ${evento.type}`);
-  let processedProspect:
-    | Awaited<ReturnType<typeof getProspectoByPhone>>
-    | null = null;
-  let processedMessageId: string | null = null;
-  let processedDirection: "incoming" | "outgoing" | null = null;
 
   try {
     switch (evento.type) {
+      // Tomás envía desde WA Business App
       case "whatsapp.smb.message.echoes": {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const msg = evento.whatsappMessage as Record<string, any> | undefined;
         if (msg?.to) {
           const timestamp = parseTimestamp(msg.sendTime ?? msg.createTime ?? msg.timestamp);
           const contenido = extraerContenido(msg);
-          const mediaUrl = extraerMediaUrl(msg);
-
-          await ensureProspecto(msg.to, undefined, timestamp);
-
-          const mensajeId = await registrarMensaje({
+          await upsertProspecto(msg.to, undefined, timestamp);
+          const ok = await registrarMensaje({
             telefono: msg.to,
             direccion: "saliente",
             tipo: msg.type,
@@ -253,35 +187,24 @@ export async function POST(req: NextRequest) {
             nombreContacto: "Tomas",
             payloadRaw: msg,
             wamid: msg.wamid,
-            mediaUrl,
           });
-
-          if (mensajeId) {
-            processedMessageId = mensajeId;
-            processedDirection = "outgoing";
-            processedProspect = await getProspectoByPhone(msg.to);
-            await markOutboundActivity(msg.to, timestamp);
+          if (ok) {
+            await markOutbound(msg.to, timestamp);
             console.log(`[SALIENTE -> ${msg.to}] ${contenido}`);
-
-            if (mediaUrl && (msg.type === "audio" || msg.type === "voice")) {
-              await transcribirAudioEnBackground(mensajeId, mediaUrl);
-            }
           }
         }
         break;
       }
 
+      // Enviado via API directa
       case "whatsapp.message.updated": {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const msg = evento.whatsappMessage as Record<string, any> | undefined;
         if (msg?.to && msg.status === "sent") {
           const timestamp = parseTimestamp(msg.sendTime ?? msg.createTime ?? msg.timestamp);
           const contenido = extraerContenido(msg);
-          const mediaUrl = extraerMediaUrl(msg);
-
-          await ensureProspecto(msg.to, undefined, timestamp);
-
-          const mensajeId = await registrarMensaje({
+          await upsertProspecto(msg.to, undefined, timestamp);
+          const ok = await registrarMensaje({
             telefono: msg.to,
             direccion: "saliente",
             tipo: msg.type,
@@ -290,38 +213,22 @@ export async function POST(req: NextRequest) {
             nombreContacto: "Tomas",
             payloadRaw: msg,
             wamid: msg.wamid,
-            mediaUrl,
           });
-
-          if (mensajeId) {
-            processedMessageId = mensajeId;
-            processedDirection = "outgoing";
-            processedProspect = await getProspectoByPhone(msg.to);
-            await markOutboundActivity(msg.to, timestamp);
-
-            if (mediaUrl && (msg.type === "audio" || msg.type === "voice")) {
-              await transcribirAudioEnBackground(mensajeId, mediaUrl);
-            }
-          }
+          if (ok) await markOutbound(msg.to, timestamp);
         }
         break;
       }
 
+      // Prospecto responde
       case "whatsapp.inbound_message.received": {
-        const msg = evento.whatsappInboundMessage as
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          | Record<string, any>
-          | undefined;
-
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const msg = evento.whatsappInboundMessage as Record<string, any> | undefined;
         if (msg?.from) {
           const timestamp = parseTimestamp(msg.sendTime ?? msg.timestamp);
           const contenido = extraerContenido(msg);
           const nombreContacto: string = msg.customerProfile?.name || "";
-          const mediaUrl = extraerMediaUrl(msg);
-
-          await ensureProspecto(msg.from, nombreContacto, timestamp);
-
-          const mensajeId = await registrarMensaje({
+          await upsertProspecto(msg.from, nombreContacto, timestamp);
+          const ok = await registrarMensaje({
             telefono: msg.from,
             direccion: "entrante",
             tipo: msg.type,
@@ -330,53 +237,51 @@ export async function POST(req: NextRequest) {
             nombreContacto,
             payloadRaw: msg,
             wamid: msg.wamid,
-            mediaUrl,
           });
-
-          if (mensajeId) {
-            await markInboundActivity(msg.from, nombreContacto, timestamp);
-            processedMessageId = mensajeId;
-            processedDirection = "incoming";
-            processedProspect = await getProspectoByPhone(msg.from);
+          if (ok) {
+            await markInbound(msg.from, nombreContacto, timestamp);
             console.log(`[ENTRANTE <- ${msg.from}] ${nombreContacto}: ${contenido}`);
 
             postN8n("/webhook/nuevo-lead-whatsapp", {
               phone: msg.from,
               name: nombreContacto,
               content: contenido,
-              timestamp: timestamp.toISOString(),
+              timestamp,
               wamid: msg.wamid || null,
               type: msg.type || "text",
             });
 
-            if (mediaUrl && (msg.type === "audio" || msg.type === "voice")) {
-              await transcribirAudioEnBackground(mensajeId, mediaUrl);
+            // Trigger auto-classification
+            const baseUrl =
+              process.env.CRM_BASE_URL ||
+              process.env.NEXT_PUBLIC_APP_URL ||
+              process.env.VERCEL_PROJECT_PRODUCTION_URL;
+            if (baseUrl) {
+              const normalized = baseUrl.startsWith("http") ? baseUrl : `https://${baseUrl}`;
+              fetch(`${normalized}/api/prospeccion/analyze`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ telefono: msg.from, force: true }),
+              }).catch((err) => console.error("[auto-classifier]", err));
             }
-
-            triggerClassification(msg.from);
           }
         }
         break;
       }
 
+      // Historia de mensajes WA Business App
       case "whatsapp.smb.history": {
-        const inbound = evento.whatsappInboundMessage as
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          | Record<string, any>
-          | undefined;
-        const outbound = evento.whatsappMessage as
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          | Record<string, any>
-          | undefined;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const inbound = evento.whatsappInboundMessage as Record<string, any> | undefined;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const outbound = evento.whatsappMessage as Record<string, any> | undefined;
 
         if (inbound?.from) {
           const timestamp = parseTimestamp(inbound.sendTime ?? inbound.timestamp);
           const contenido = extraerContenido(inbound);
           const nombreContacto: string = inbound.customerProfile?.name || "";
-
-          await ensureProspecto(inbound.from, nombreContacto, timestamp);
-
-          const mensajeId = await registrarMensaje({
+          await upsertProspecto(inbound.from, nombreContacto, timestamp);
+          const ok = await registrarMensaje({
             telefono: inbound.from,
             direccion: "entrante",
             tipo: inbound.type,
@@ -385,25 +290,15 @@ export async function POST(req: NextRequest) {
             nombreContacto,
             payloadRaw: inbound,
             wamid: inbound.wamid,
-            mediaUrl: extraerMediaUrl(inbound),
           });
-
-          if (mensajeId) {
-            await markInboundActivity(inbound.from, nombreContacto, timestamp);
-            processedMessageId = mensajeId;
-            processedDirection = "incoming";
-            processedProspect = await getProspectoByPhone(inbound.from);
-            triggerClassification(inbound.from);
-          }
+          if (ok) await markInbound(inbound.from, nombreContacto, timestamp);
         }
 
         if (outbound?.to) {
           const timestamp = parseTimestamp(outbound.sendTime ?? outbound.createTime ?? outbound.timestamp);
           const contenido = extraerContenido(outbound);
-
-          await ensureProspecto(outbound.to, undefined, timestamp);
-
-          const mensajeId = await registrarMensaje({
+          await upsertProspecto(outbound.to, undefined, timestamp);
+          const ok = await registrarMensaje({
             telefono: outbound.to,
             direccion: "saliente",
             tipo: outbound.type,
@@ -412,15 +307,8 @@ export async function POST(req: NextRequest) {
             nombreContacto: "Tomas",
             payloadRaw: outbound,
             wamid: outbound.wamid,
-            mediaUrl: extraerMediaUrl(outbound),
           });
-
-          if (mensajeId) {
-            processedMessageId = mensajeId;
-            processedDirection = "outgoing";
-            processedProspect = await getProspectoByPhone(outbound.to);
-            await markOutboundActivity(outbound.to, timestamp);
-          }
+          if (ok) await markOutbound(outbound.to, timestamp);
         }
         break;
       }
@@ -429,10 +317,5 @@ export async function POST(req: NextRequest) {
     console.error("[YCLOUD] Error procesando webhook:", err);
   }
 
-  return NextResponse.json({
-    ok: true,
-    prospecto: processedProspect,
-    mensajeId: processedMessageId,
-    direction: processedDirection,
-  });
+  return NextResponse.json({ ok: true });
 }

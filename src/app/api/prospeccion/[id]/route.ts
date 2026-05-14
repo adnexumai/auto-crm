@@ -1,31 +1,27 @@
+// GET/PATCH/DELETE individual prospect (Supabase)
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { db } from "@/db";
-import { prospectos, prospectosMensajes } from "@/db/schema";
-import {
-  PROSPECT_ESTADOS,
-  normalizeIntenciones,
-  normalizeTemperatura,
-  parseIntencionesJson,
-} from "@/lib/prospecting";
-import { syncProspectLabels } from "@/lib/prospeccion/chatwoot-label-sync";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
-
-const ESTADOS_VALIDOS = new Set<string>(PROSPECT_ESTADOS);
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const [row] = await db.select().from(prospectos).where(eq(prospectos.id, id));
+  const supabase = getSupabase();
 
-  if (!row) {
+  const { data, error } = await supabase
+    .from("prospectos")
+    .select("*")
+    .eq("id", Number(id))
+    .maybeSingle();
+
+  if (error || !data) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
 
-  return NextResponse.json(row);
+  return NextResponse.json(data);
 }
 
 export async function PATCH(
@@ -33,6 +29,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const supabase = getSupabase();
 
   let body: Record<string, unknown>;
   try {
@@ -41,86 +38,27 @@ export async function PATCH(
     return NextResponse.json({ error: "JSON invalido" }, { status: 400 });
   }
 
-  const [existing] = await db
-    .select({ id: prospectos.id })
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
-
-  if (!existing) {
-    return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  const allowed = [
+    "negocio", "nombre_contacto", "estado", "notas",
+    "respondio", "siguiente_paso", "oportunidad_score",
+  ];
+  const patch: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in body) patch[key] = body[key];
   }
 
-  const updates: Partial<typeof prospectos.$inferInsert> = {
-    updatedAt: new Date(),
-  };
+  const { data, error } = await supabase
+    .from("prospectos")
+    .update(patch)
+    .eq("id", Number(id))
+    .select()
+    .single();
 
-  if (typeof body.negocio === "string") updates.negocio = body.negocio;
-  if (typeof body.notas === "string") updates.notas = body.notas;
-  if (typeof body.nombreContacto === "string") {
-    updates.nombreContacto = body.nombreContacto;
-  }
-  if (typeof body.rubro === "string") updates.rubro = body.rubro;
-  if (typeof body.urlNegocio === "string") updates.urlNegocio = body.urlNegocio;
-  if (typeof body.chatwootConversationId === "string") {
-    updates.chatwootConversationId = body.chatwootConversationId;
-  }
-  if (typeof body.proximoPaso === "string") updates.proximoPaso = body.proximoPaso;
-  if (typeof body.resumenIa === "string") updates.resumenIa = body.resumenIa;
-  if (typeof body.oportunidadScore === "number") {
-    updates.oportunidadScore = Math.max(0, Math.min(10, Math.round(body.oportunidadScore)));
-  }
-  if (typeof body.temperatura === "string") {
-    updates.temperatura = normalizeTemperatura(body.temperatura, Number(body.oportunidadScore ?? 0));
-  }
-  if (Array.isArray(body.intenciones) || typeof body.intenciones === "string") {
-    updates.intencionesJson = JSON.stringify(normalizeIntenciones(body.intenciones));
-  }
-  if (typeof body.requiereHumano === "boolean") {
-    updates.requiereHumano = body.requiereHumano;
-  }
-  if (typeof body.destacado === "boolean") {
-    updates.destacado = body.destacado;
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  let estadoCambiado = false;
-  if (typeof body.estado === "string" && ESTADOS_VALIDOS.has(body.estado)) {
-    updates.estado = body.estado;
-    if (body.estado !== "agendado") updates.fechaAgendado = null;
-    estadoCambiado = true;
-  }
-
-  if (body.fechaAgendado !== undefined) {
-    updates.fechaAgendado = body.fechaAgendado
-      ? new Date(body.fechaAgendado as string)
-      : null;
-  }
-
-  await db.update(prospectos).set(updates).where(eq(prospectos.id, id));
-
-  const [updated] = await db.select().from(prospectos).where(eq(prospectos.id, id));
-
-  const shouldSyncLabels =
-    estadoCambiado ||
-    "temperatura" in updates ||
-    "intencionesJson" in updates ||
-    "requiereHumano" in updates ||
-    "destacado" in updates ||
-    "chatwootConversationId" in updates;
-
-  if (shouldSyncLabels) {
-    syncProspectLabels({
-      prospectId: id,
-      phone: updated.telefono,
-      estado: updated.estado,
-      chatwootConversationId: updated.chatwootConversationId,
-      temperatura: updated.temperatura,
-      intenciones: parseIntencionesJson(updated.intencionesJson),
-      requiereHumano: updated.requiereHumano,
-      destacado: updated.destacado,
-    });
-  }
-
-  return NextResponse.json(updated);
+  return NextResponse.json(data);
 }
 
 export async function DELETE(
@@ -128,21 +66,21 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const supabase = getSupabase();
 
-  const [row] = await db
-    .select({ telefono: prospectos.telefono })
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
+  // Get phone first to delete related messages
+  const { data: row } = await supabase
+    .from("prospectos")
+    .select("telefono")
+    .eq("id", Number(id))
+    .maybeSingle();
 
   if (!row) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
 
-  await db
-    .delete(prospectosMensajes)
-    .where(eq(prospectosMensajes.telefono, row.telefono));
-
-  await db.delete(prospectos).where(eq(prospectos.id, id));
+  await supabase.from("prospectos_mensajes").delete().eq("telefono", row.telefono);
+  await supabase.from("prospectos").delete().eq("id", Number(id));
 
   return NextResponse.json({ success: true });
 }

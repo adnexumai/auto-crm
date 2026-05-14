@@ -1,98 +1,58 @@
-// Prospectos que necesitan atención hoy — ordenados por prioridad
+// Prospectos que necesitan atención hoy (Supabase)
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectos } from "@/db/schema";
-import { and, desc, gte, lt, lte, not, like, isNotNull } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const supabase = getSupabase();
   const now = new Date();
-  const hace24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const hace48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-  const en48h = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+  const hace24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const hace48h = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
 
-  const campos = {
-    id: prospectos.id,
-    telefono: prospectos.telefono,
-    nombreContacto: prospectos.nombreContacto,
-    negocio: prospectos.negocio,
-    estado: prospectos.estado,
-    respondio: prospectos.respondio,
-    oportunidadScore: prospectos.oportunidadScore,
-    ultimoContacto: prospectos.ultimoContacto,
-    fechaAgendado: prospectos.fechaAgendado,
-    resumenIa: prospectos.resumenIa,
-    crmDealId: prospectos.crmDealId,
-  };
+  const campos = "id, telefono, nombre_contacto, negocio, estado, respondio, oportunidad_score, ultimo_contacto, resumen_ia";
 
-  // 🔴 Urgente: agendados en próximas 48h
-  const urgentes = await db
+  // Respondieron + sin seguimiento en 48h + score >= 6
+  const { data: contactarHoy } = await supabase
+    .from("prospectos")
     .select(campos)
-    .from(prospectos)
-    .where(
-      and(
-        isNotNull(prospectos.fechaAgendado),
-        lte(prospectos.fechaAgendado, en48h),
-        gte(prospectos.fechaAgendado, now)
-      )
-    )
-    .orderBy(prospectos.fechaAgendado)
+    .eq("respondio", true)
+    .lte("ultimo_contacto", hace48h)
+    .not("estado", "like", "cerrado%")
+    .gte("oportunidad_score", 6)
+    .order("oportunidad_score", { ascending: false })
     .limit(10);
 
-  // 🟡 Contactar hoy: respondieron + sin seguimiento en 48h + score ≥ 6
-  const contactarHoy = await db
+  // Score >= 7, no respondió, no contactado en 24h
+  const { data: hotSinRespuesta } = await supabase
+    .from("prospectos")
     .select(campos)
-    .from(prospectos)
-    .where(
-      and(
-        prospectos.respondio,
-        lte(prospectos.ultimoContacto, hace48h),
-        not(like(prospectos.estado, "cerrado%")),
-        gte(prospectos.oportunidadScore, 6)
-      )
-    )
-    .orderBy(desc(prospectos.oportunidadScore))
+    .eq("respondio", false)
+    .lte("ultimo_contacto", hace24h)
+    .gte("oportunidad_score", 7)
+    .not("estado", "like", "cerrado%")
+    .order("oportunidad_score", { ascending: false })
     .limit(10);
 
-  // 🟠 Hot sin respuesta: score ≥ 7, no respondió, no contactado en 24h
-  const hotSinRespuesta = await db
+  // Sin contacto en 48h, no cerrados
+  const { data: enSeguimiento } = await supabase
+    .from("prospectos")
     .select(campos)
-    .from(prospectos)
-    .where(
-      and(
-        not(prospectos.respondio),
-        lte(prospectos.ultimoContacto, hace24h),
-        gte(prospectos.oportunidadScore, 7),
-        not(like(prospectos.estado, "cerrado%"))
-      )
-    )
-    .orderBy(desc(prospectos.oportunidadScore))
-    .limit(10);
-
-  // 🔵 En seguimiento: promovidos a deal, verificar avance
-  const enSeguimiento = await db
-    .select(campos)
-    .from(prospectos)
-    .where(
-      and(
-        lt(prospectos.ultimoContacto, hace48h),
-        not(like(prospectos.estado, "cerrado%"))
-      )
-    )
-    .orderBy(desc(prospectos.oportunidadScore))
+    .lt("ultimo_contacto", hace48h)
+    .not("estado", "like", "cerrado%")
+    .order("oportunidad_score", { ascending: false })
     .limit(10);
 
   return NextResponse.json({
-    urgentes,
-    contactarHoy,
-    hotSinRespuesta,
-    enSeguimiento,
+    urgentes: [],
+    contactarHoy: contactarHoy || [],
+    hotSinRespuesta: hotSinRespuesta || [],
+    enSeguimiento: enSeguimiento || [],
     totales: {
-      urgentes: urgentes.length,
-      contactarHoy: contactarHoy.length,
-      hotSinRespuesta: hotSinRespuesta.length,
-      enSeguimiento: enSeguimiento.length,
+      urgentes: 0,
+      contactarHoy: contactarHoy?.length ?? 0,
+      hotSinRespuesta: hotSinRespuesta?.length ?? 0,
+      enSeguimiento: enSeguimiento?.length ?? 0,
     },
   });
 }

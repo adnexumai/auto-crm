@@ -1,8 +1,6 @@
-// [FUSION] GET mensajes de un prospect ordenados por timestamp ASC
+// GET mensajes de un prospecto (Supabase)
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectos, prospectosMensajes } from "@/db/schema";
-import { asc, eq } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -11,31 +9,27 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const supabase = getSupabase();
 
-  const [prospect] = await db
-    .select({ telefono: prospectos.telefono })
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
+  const { data: prospect } = await supabase
+    .from("prospectos")
+    .select("telefono")
+    .eq("id", Number(id))
+    .maybeSingle();
 
   if (!prospect) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
 
-  const mensajes = await db
-    .select({
-      id: prospectosMensajes.id,
-      telefono: prospectosMensajes.telefono,
-      direccion: prospectosMensajes.direccion,
-      tipo: prospectosMensajes.tipo,
-      contenido: prospectosMensajes.contenido,
-      transcripcion: prospectosMensajes.transcripcion,
-      mediaUrl: prospectosMensajes.mediaUrl,
-      nombreContacto: prospectosMensajes.nombreContacto,
-      timestamp: prospectosMensajes.timestamp,
-    })
-    .from(prospectosMensajes)
-    .where(eq(prospectosMensajes.telefono, prospect.telefono))
-    .orderBy(asc(prospectosMensajes.timestamp));
+  const { data: mensajes, error } = await supabase
+    .from("prospectos_mensajes")
+    .select("id, telefono, direccion, tipo, contenido, nombre_contacto, timestamp, wamid")
+    .eq("telefono", prospect.telefono)
+    .order("timestamp", { ascending: true });
 
-  return NextResponse.json({ items: mensajes });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ items: mensajes || [] });
 }

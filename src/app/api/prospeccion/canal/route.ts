@@ -1,24 +1,22 @@
+// Estado del canal de comunicación (Supabase)
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectosMensajes } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const [lastMessage] = await db
-    .select({
-      telefono: prospectosMensajes.telefono,
-      direccion: prospectosMensajes.direccion,
-      timestamp: prospectosMensajes.timestamp,
-    })
-    .from(prospectosMensajes)
-    .orderBy(desc(prospectosMensajes.timestamp))
-    .limit(1);
+  const supabase = getSupabase();
+
+  const { data: lastMessage } = await supabase
+    .from("prospectos_mensajes")
+    .select("telefono, direccion, timestamp")
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .single();
 
   return NextResponse.json({
     channel: "YCloud + Chatwoot",
-    crm: "adnexumcrm.vercel.app",
+    crm: "auto-crm-main-hazel.vercel.app",
     mode: "polling_realtime",
     pollMs: 5000,
     connected: Boolean(process.env.N8N_WEBHOOK_BASE),
@@ -31,14 +29,8 @@ export async function GET() {
       ? {
           telefono: lastMessage.telefono,
           direccion: lastMessage.direccion,
-          timestamp: lastMessage.timestamp.toISOString(),
+          timestamp: lastMessage.timestamp,
         }
       : null,
-    notes: {
-      ycloud:
-        "El CRM se actualiza desde los webhooks n8n. Para consultar estado directo de YCloud desde Vercel hay que cargar YCLOUD_API_KEY.",
-      chatwoot:
-        "Chatwoot se sincroniza por n8n. Para llamadas directas desde el CRM hay que cargar CHATWOOT_API_TOKEN rotado.",
-    },
   });
 }
