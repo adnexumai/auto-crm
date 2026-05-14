@@ -1,13 +1,9 @@
-// Envía un audio pregrabado al prospecto vía YCloud y lo registra en CRM + Chatwoot
+// Envía un audio pregrabado al prospecto vía YCloud y lo registra (Supabase)
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectos, prospectosMensajes } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-// Mapa de audios disponibles → URLs públicas
-// Subir los archivos .ogg a Vercel Blob o CDN y actualizar estas URLs
 const AUDIO_MAP: Record<string, { url: string; label: string }> = {
   bienvenida: {
     url: `${process.env.AUDIO_CDN_BASE ?? ""}/bienvenida.ogg`,
@@ -48,13 +44,15 @@ export async function POST(
     );
   }
 
-  // Obtener prospecto
-  const [prospecto] = await db
-    .select()
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
+  const supabase = getSupabase();
 
-  if (!prospecto) {
+  const { data: prospecto, error } = await supabase
+    .from("prospectos")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error || !prospecto) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   }
 
@@ -95,47 +93,25 @@ export async function POST(
   const yData = await yRes.json();
   const wamid = yData?.id ?? null;
 
-  // Registrar mensaje saliente en CRM
-  await db.insert(prospectosMensajes).values({
+  // Registrar mensaje saliente
+  await supabase.from("prospectos_mensajes").insert({
     telefono: prospecto.telefono,
     wamid,
     direccion: "saliente",
     tipo: "audio",
     contenido: `[Audio: ${audio.label}]`,
-    mediaUrl: audio.url,
-    nombreContacto: prospecto.nombreContacto,
-    timestamp: new Date(),
+    nombre_contacto: prospecto.nombre_contacto,
+    timestamp: new Date().toISOString(),
   });
 
-  // Actualizar ultimoContacto y mensajesEnviados
-  await db
-    .update(prospectos)
-    .set({
-      ultimoContacto: new Date(),
-      mensajesEnviados: prospecto.mensajesEnviados + 1,
-      updatedAt: new Date(),
+  // Actualizar prospecto
+  await supabase
+    .from("prospectos")
+    .update({
+      ultimo_contacto: new Date().toISOString(),
+      mensajes_enviados: (prospecto.mensajes_enviados || 0) + 1,
     })
-    .where(eq(prospectos.id, id));
-
-  // Fire-and-forget: registrar en Chatwoot si hay conversación
-  if (prospecto.chatwootConversationId && process.env.CHATWOOT_BASE_URL) {
-    const chatwootPayload = {
-      content: `🎙️ *${audio.label}* (audio enviado)`,
-      message_type: "outgoing",
-      private: false,
-    };
-    fetch(
-      `${process.env.CHATWOOT_BASE_URL}/api/v1/accounts/${process.env.CHATWOOT_ACCOUNT_ID}/conversations/${prospecto.chatwootConversationId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api_access_token": process.env.CHATWOOT_API_TOKEN ?? "",
-        },
-        body: JSON.stringify(chatwootPayload),
-      }
-    ).catch((err) => console.error("[send-audio] Chatwoot error:", err));
-  }
+    .eq("id", id);
 
   return NextResponse.json({ success: true, wamid, audioKey, label: audio.label });
 }

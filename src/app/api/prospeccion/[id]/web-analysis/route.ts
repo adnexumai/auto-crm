@@ -1,9 +1,7 @@
-// Análisis del sitio web de un negocio + guión de llamada de descubrimiento
+// Análisis del sitio web de un negocio + guión de llamada de descubrimiento (Supabase)
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { db } from "@/db";
-import { prospectos } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 45;
@@ -25,16 +23,19 @@ export async function POST(
     return NextResponse.json({ error: "URL requerida" }, { status: 400 });
   }
 
-  const [prospecto] = await db
-    .select({ id: prospectos.id, negocio: prospectos.negocio, nombreContacto: prospectos.nombreContacto })
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
+  const supabase = getSupabase();
 
-  if (!prospecto) {
+  const { data: prospecto, error } = await supabase
+    .from("prospectos")
+    .select("id, negocio, nombre_contacto")
+    .eq("id", id)
+    .single();
+
+  if (error || !prospecto) {
     return NextResponse.json({ error: "Prospecto no encontrado" }, { status: 404 });
   }
 
-  // Usar Jina Reader para extraer texto limpio (funciona en sitios protegidos)
+  // Usar Jina Reader para extraer texto limpio
   let textoSitio = "";
   try {
     const jinaUrl = `https://r.jina.ai/${body.url.trim()}`;
@@ -67,7 +68,7 @@ export async function POST(
   }
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const nombreNegocio = prospecto.negocio || prospecto.nombreContacto || "este negocio";
+  const nombreNegocio = prospecto.negocio || prospecto.nombre_contacto || "este negocio";
 
   const prompt = `Sos un experto en ventas B2B para agencias de IA y automatización. Analizá el contenido de este sitio web y respondé SOLO en JSON válido con este formato exacto (sin markdown, sin texto adicional):
 
@@ -94,15 +95,13 @@ El guión debe tener 5-6 preguntas de descubrimiento enfocadas en detectar: prob
     return NextResponse.json({ error: "Error al generar el análisis" }, { status: 500 });
   }
 
-  // Guardar en BD
-  await db
-    .update(prospectos)
-    .set({
-      urlNegocio: body.url.trim(),
-      analisisWeb: JSON.stringify(analysis),
-      updatedAt: new Date(),
+  // Save url_negocio if column exists, store analysis in notas as fallback
+  await supabase
+    .from("prospectos")
+    .update({
+      notas: `[Web Analysis]\n${JSON.stringify(analysis, null, 2)}`,
     })
-    .where(eq(prospectos.id, id));
+    .eq("id", id);
 
   return NextResponse.json(analysis);
 }

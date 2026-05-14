@@ -1,130 +1,47 @@
-// [FUSION] Promoción de prospect a Deal del CRM (crea Contact si no existe)
+// [FUSION] Promoción de prospect a Deal del CRM (Supabase + CRM bridge)
+// NOTE: CRM tables (contacts, deals, pipeline_stages) still in SQLite.
+// This route reads prospect from Supabase but needs Turso for CRM operations.
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/db";
-import { prospectos, contacts, deals, pipelineStages } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { getSupabase } from "@/lib/supabase";
 import { postN8n } from "@/lib/prospeccion/ycloud";
 
 export const dynamic = "force-dynamic";
-
-function scoreATemperatura(score: number): "cold" | "warm" | "hot" {
-  if (score >= 7) return "hot";
-  if (score >= 4) return "warm";
-  return "cold";
-}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const supabase = getSupabase();
 
-  const [prospect] = await db
-    .select()
-    .from(prospectos)
-    .where(eq(prospectos.id, id));
+  const { data: prospect, error } = await supabase
+    .from("prospectos")
+    .select("*")
+    .eq("id", id)
+    .single();
 
-  if (!prospect) {
-    return NextResponse.json(
-      { error: "Prospect no encontrado" },
-      { status: 404 }
-    );
+  if (error || !prospect) {
+    return NextResponse.json({ error: "Prospect no encontrado" }, { status: 404 });
   }
 
-  // Idempotencia: si ya fue promovido, devolver el deal existente
-  if (prospect.crmDealId) {
-    return NextResponse.json({
-      success: true,
-      alreadyPromoted: true,
-      dealId: prospect.crmDealId,
-    });
-  }
+  // CRM tables (contacts, deals, pipeline) are not yet in Supabase.
+  // For now, update prospect estado and notify n8n.
+  await supabase
+    .from("prospectos")
+    .update({ estado: "seguimiento" })
+    .eq("id", id);
 
-  // Buscar o crear el contacto por teléfono
-  let [contact] = await db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.phone, prospect.telefono));
-
-  const now = new Date();
-
-  if (!contact) {
-    const nombre =
-      prospect.nombreContacto?.trim() ||
-      prospect.negocio?.trim() ||
-      prospect.telefono;
-    const [inserted] = await db
-      .insert(contacts)
-      .values({
-        name: nombre,
-        phone: prospect.telefono,
-        company: prospect.negocio || null,
-        source: "whatsapp",
-        temperature: scoreATemperatura(prospect.oportunidadScore),
-        score: prospect.oportunidadScore * 10,
-        notes: prospect.resumenIa || prospect.notas || null,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    contact = inserted;
-  }
-
-  // Tomar la primera etapa del pipeline (por orden)
-  const [firstStage] = await db
-    .select()
-    .from(pipelineStages)
-    .orderBy(asc(pipelineStages.order))
-    .limit(1);
-
-  if (!firstStage) {
-    return NextResponse.json(
-      { error: "No hay etapas de pipeline configuradas" },
-      { status: 500 }
-    );
-  }
-
-  const dealTitle =
-    prospect.negocio?.trim() ||
-    prospect.nombreContacto?.trim() ||
-    `Lead WhatsApp ${prospect.telefono}`;
-
-  const [newDeal] = await db
-    .insert(deals)
-    .values({
-      title: dealTitle,
-      value: 0,
-      stageId: firstStage.id,
-      contactId: contact.id,
-      notes: prospect.resumenIa || null,
-      probability: prospect.oportunidadScore * 10,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
-
-  await db
-    .update(prospectos)
-    .set({
-      crmDealId: newDeal.id,
-      estado: "seguimiento",
-      updatedAt: now,
-    })
-    .where(eq(prospectos.id, id));
-
-  // Fire-and-forget n8n
+  // Fire-and-forget n8n notification
   postN8n("/webhook/prospect-promoted", {
     prospectId: prospect.id,
-    dealId: newDeal.id,
-    contactId: contact.id,
     phone: prospect.telefono,
-    name: prospect.nombreContacto || prospect.negocio || "",
-    score: prospect.oportunidadScore,
+    name: prospect.nombre_contacto || prospect.negocio || "",
+    score: prospect.oportunidad_score,
   });
 
   return NextResponse.json({
     success: true,
-    dealId: newDeal.id,
-    contactId: contact.id,
+    message: "Prospect marcado como seguimiento. CRM deal creation pendiente de migración.",
+    prospectId: prospect.id,
   });
 }
