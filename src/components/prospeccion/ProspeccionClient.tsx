@@ -13,6 +13,7 @@ import {
   ChevronRight,
   KanbanSquare,
   ListTodo,
+  MessageSquare,
   PlusSquare,
   RefreshCw,
   Search,
@@ -46,6 +47,7 @@ import { AnalyticsPanel } from "./AnalyticsPanel";
 import { ColaDiariaPanel } from "./ColaDiariaPanel";
 import { SeguimientoPanel } from "./SeguimientoPanel";
 import { SyncStatusPanel } from "./SyncStatusPanel";
+import { ChatwootEmbed } from "./ChatwootEmbed";
 import {
   ESTADO_LABEL,
   ESTADO_ORDER,
@@ -610,10 +612,14 @@ export function ProspeccionClient({
       ) : null}
 
       <Tabs defaultValue="leads">
-        <TabsList className="grid w-full grid-cols-4 md:grid-cols-8">
+        <TabsList className="grid w-full grid-cols-4 md:grid-cols-9">
           <TabsTrigger value="leads">
             <Target className="mr-1.5 h-3.5 w-3.5" />
             Leads
+          </TabsTrigger>
+          <TabsTrigger value="chatwoot">
+            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+            Chatwoot
           </TabsTrigger>
           <TabsTrigger value="cola">
             <Zap className="mr-1.5 h-3.5 w-3.5" />
@@ -776,6 +782,10 @@ export function ProspeccionClient({
               </Button>
             </div>
           ) : null}
+        </TabsContent>
+
+        <TabsContent value="chatwoot" className="mt-4">
+          <ChatwootEmbed />
         </TabsContent>
 
         <TabsContent value="cola" className="mt-4">
