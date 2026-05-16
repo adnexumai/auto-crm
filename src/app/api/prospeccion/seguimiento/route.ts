@@ -43,16 +43,37 @@ export async function GET() {
     .order("oportunidad_score", { ascending: false })
     .limit(10);
 
+  // Map snake_case → camelCase for frontend compatibility
+  function mapProspecto(p: Record<string, unknown>) {
+    return {
+      id: p.id,
+      telefono: p.telefono,
+      nombreContacto: p.nombre_contacto || "",
+      negocio: p.negocio || null,
+      estado: p.estado || "",
+      respondio: Boolean(p.respondio),
+      oportunidadScore: Number(p.oportunidad_score) || 0,
+      ultimoContacto: p.ultimo_contacto || new Date().toISOString(),
+      fechaAgendado: null,
+      resumenIa: (p.resumen_ia as string) || "",
+      crmDealId: null,
+    };
+  }
+
+  const mapped = {
+    urgentes: [] as ReturnType<typeof mapProspecto>[],
+    contactarHoy: (contactarHoy || []).map(mapProspecto),
+    hotSinRespuesta: (hotSinRespuesta || []).map(mapProspecto),
+    enSeguimiento: (enSeguimiento || []).map(mapProspecto),
+  };
+
   return NextResponse.json({
-    urgentes: [],
-    contactarHoy: contactarHoy || [],
-    hotSinRespuesta: hotSinRespuesta || [],
-    enSeguimiento: enSeguimiento || [],
+    ...mapped,
     totales: {
       urgentes: 0,
-      contactarHoy: contactarHoy?.length ?? 0,
-      hotSinRespuesta: hotSinRespuesta?.length ?? 0,
-      enSeguimiento: enSeguimiento?.length ?? 0,
+      contactarHoy: mapped.contactarHoy.length,
+      hotSinRespuesta: mapped.hotSinRespuesta.length,
+      enSeguimiento: mapped.enSeguimiento.length,
     },
   });
 }
