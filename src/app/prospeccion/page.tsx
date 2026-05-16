@@ -1,172 +1,107 @@
-// [FUSION] Portado desde adnexum-os - Página raíz de Prospección (Server Component)
-import { db } from "@/db";
-import { prospectos, prospectosMensajes } from "@/db/schema";
-import { desc, sql, and, gte, lte, eq, inArray } from "drizzle-orm";
+// Prospección page — Server Component using Supabase via API routes
 import { ProspeccionClient } from "@/components/prospeccion/ProspeccionClient";
-import type { Prospecto, Kpis } from "@/components/prospeccion/constants";
+import type { Kpis, Prospecto } from "@/components/prospeccion/constants";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL?.trim()
+  || process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
+  || "http://localhost:3000";
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function endOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
+function normalizeUrl(base: string): string {
+  return base.startsWith("http") ? base : `https://${base}`;
 }
 
-async function computeKpis(): Promise<Kpis> {
-  const now = new Date();
-  const hoyIni = startOfDay(now);
-  const hoyFin = endOfDay(now);
-
-  const [contactosHoyRow] = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(prospectos)
-    .where(
-      and(
-        gte(prospectos.primerContacto, hoyIni),
-        lte(prospectos.primerContacto, hoyFin)
-      )
-    );
-  const contactosHoy = contactosHoyRow?.c ?? 0;
-
-  const [respuestasHoyRow] = await db
-    .select({ c: sql<number>`count(*)` })
-    .from(prospectos)
-    .where(
-      and(
-        gte(prospectos.primerContacto, hoyIni),
-        lte(prospectos.primerContacto, hoyFin),
-        eq(prospectos.respondio, true)
-      )
-    );
-  const respuestasHoy = respuestasHoyRow?.c ?? 0;
-
-  const [totalRow] = await db.select({ c: sql<number>`count(*)` }).from(prospectos);
-  const total = totalRow?.c ?? 0;
-
-  const [funnelRow] = await db
-    .select({
-      calientes: sql<number>`sum(case when ${prospectos.temperatura} = 'caliente' then 1 else 0 end)`,
-      tibios: sql<number>`sum(case when ${prospectos.temperatura} = 'tibio' then 1 else 0 end)`,
-      requiereHumano: sql<number>`sum(case when ${prospectos.requiereHumano} = 1 then 1 else 0 end)`,
-      destacados: sql<number>`sum(case when ${prospectos.destacado} = 1 then 1 else 0 end)`,
-      oportunidadesAbiertas: sql<number>`sum(case when ${prospectos.estado} not in ('cerrado_positivo', 'cerrado_negativo') then 1 else 0 end)`,
-    })
-    .from(prospectos);
-
-  const [lastActivityRow] = await db
-    .select({ ultimoContacto: prospectos.ultimoContacto })
-    .from(prospectos)
-    .orderBy(desc(prospectos.ultimoContacto))
-    .limit(1);
-
-  const hace14 = startOfDay(new Date(now.getTime() - 13 * 24 * 60 * 60 * 1000));
-
-  const serieRaw = await db
-    .select({
-      dia: sql<string>`date(${prospectos.primerContacto}, 'unixepoch', 'localtime')`,
-      contactos: sql<number>`count(*)`,
-      respuestas: sql<number>`sum(case when ${prospectos.respondio} = 1 then 1 else 0 end)`,
-    })
-    .from(prospectos)
-    .where(gte(prospectos.primerContacto, hace14))
-    .groupBy(sql`date(${prospectos.primerContacto}, 'unixepoch', 'localtime')`);
-
-  const mapa = new Map(
-    serieRaw.map((r) => [
-      r.dia,
-      {
-        contactos: Number(r.contactos) || 0,
-        respuestas: Number(r.respuestas) || 0,
-      },
-    ])
-  );
-
-  const serie: Kpis["serie"] = [];
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(hace14.getTime() + i * 24 * 60 * 60 * 1000);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const row = mapa.get(key);
-    serie.push({
-      dia: key,
-      contactos: row?.contactos ?? 0,
-      respuestas: row?.respuestas ?? 0,
-    });
+async function fetchProspectos(): Promise<{ items: Prospecto[]; total: number }> {
+  try {
+    const url = `${normalizeUrl(BASE_URL)}/api/prospeccion?pageSize=50`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    return {
+      items: (data.items || []).map((p: Record<string, unknown>) => ({
+        id: p.id,
+        telefono: p.telefono || "",
+        negocio: p.negocio || "",
+        nombreContacto: p.nombreContacto || p.nombre_contacto || "",
+        estado: p.estado || "enviado",
+        respondio: Boolean(p.respondio),
+        oportunidadScore: Number(p.oportunidadScore ?? p.oportunidad_score ?? 0),
+        resumenIa: (p.resumenIa || p.resumen_ia || "") as string,
+        notas: (p.notas || "") as string,
+        temperatura: (p.temperatura || "frio") as string,
+        destacado: Boolean(p.destacado),
+        requiereHumano: Boolean(p.requiereHumano ?? p.requiere_humano),
+        mensajesEnviados: Number(p.mensajesEnviados ?? p.mensajes_enviados ?? 0),
+        primerContacto: (p.primerContacto || p.primer_contacto || new Date().toISOString()) as string,
+        ultimoContacto: (p.ultimoContacto || p.ultimo_contacto || new Date().toISOString()) as string,
+        ultimoAnalisis: (p.ultimoAnalisis || p.ultimo_analisis || null) as string | null,
+        siguientePaso: (p.siguientePaso || p.siguiente_paso || "") as string,
+        ultimoMensaje: (p.ultimoMensaje || p.ultimo_mensaje || "") as string,
+        createdAt: (p.createdAt || new Date().toISOString()) as string,
+        updatedAt: (p.updatedAt || new Date().toISOString()) as string,
+      })),
+      total: Number(data.total || 0),
+    };
+  } catch (err) {
+    console.error("[prospeccion/page] Error fetching prospectos:", err);
+    return { items: [], total: 0 };
   }
+}
 
-  const tasa =
-    contactosHoy > 0 ? Math.round((respuestasHoy / contactosHoy) * 100) : 0;
-
-  return {
-    contactosHoy,
-    respuestasHoy,
-    tasa,
-    total,
-    calientes: Number(funnelRow?.calientes) || 0,
-    tibios: Number(funnelRow?.tibios) || 0,
-    requiereHumano: Number(funnelRow?.requiereHumano) || 0,
-    destacados: Number(funnelRow?.destacados) || 0,
-    oportunidadesAbiertas: Number(funnelRow?.oportunidadesAbiertas) || 0,
-    ultimaActividad: lastActivityRow?.ultimoContacto?.toISOString() ?? null,
-    serie,
+async function fetchKpis(): Promise<Kpis> {
+  const defaults: Kpis = {
+    contactosHoy: 0,
+    respuestasHoy: 0,
+    tasa: 0,
+    total: 0,
+    calientes: 0,
+    tibios: 0,
+    requiereHumano: 0,
+    destacados: 0,
+    oportunidadesAbiertas: 0,
+    ultimaActividad: null,
+    serie: [],
   };
+
+  try {
+    const url = `${normalizeUrl(BASE_URL)}/api/prospeccion/kpis`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    return {
+      contactosHoy: data.contactosHoy ?? 0,
+      respuestasHoy: data.respuestasHoy ?? 0,
+      tasa: data.tasa ?? 0,
+      total: data.total ?? 0,
+      calientes: data.calientes ?? data.leadsCalientes ?? 0,
+      tibios: data.tibios ?? 0,
+      requiereHumano: data.requiereHumano ?? 0,
+      destacados: data.destacados ?? 0,
+      oportunidadesAbiertas: data.oportunidadesAbiertas ?? 0,
+      ultimaActividad: data.ultimaActividad ?? null,
+      serie: data.serie ?? [],
+    };
+  } catch (err) {
+    console.error("[prospeccion/page] Error fetching kpis:", err);
+    return defaults;
+  }
 }
 
 export default async function ProspeccionPage() {
-  const rows = await db
-    .select()
-    .from(prospectos)
-    .orderBy(desc(prospectos.destacado), desc(prospectos.ultimoContacto))
-    .limit(PAGE_SIZE);
-
-  const phones = rows.map((row) => row.telefono);
-  const latestByPhone = new Map<string, string>();
-
-  if (phones.length > 0) {
-    const messages = await db
-      .select({
-        telefono: prospectosMensajes.telefono,
-        contenido: prospectosMensajes.contenido,
-        transcripcion: prospectosMensajes.transcripcion,
-      })
-      .from(prospectosMensajes)
-      .where(inArray(prospectosMensajes.telefono, phones))
-      .orderBy(desc(prospectosMensajes.timestamp))
-      .limit(phones.length * 8);
-
-    for (const message of messages) {
-      if (latestByPhone.has(message.telefono)) continue;
-      latestByPhone.set(message.telefono, message.transcripcion || message.contenido);
-    }
-  }
-
-  const items: Prospecto[] = rows.map((r) => ({
-    ...r,
-    ultimoMensaje: latestByPhone.get(r.telefono) || "",
-    primerContacto: r.primerContacto?.toISOString() ?? new Date().toISOString(),
-    ultimoContacto: r.ultimoContacto?.toISOString() ?? new Date().toISOString(),
-    ultimoAnalisis: r.ultimoAnalisis?.toISOString() ?? null,
-    createdAt: r.createdAt?.toISOString() ?? new Date().toISOString(),
-    updatedAt: r.updatedAt?.toISOString() ?? new Date().toISOString(),
-  }));
-
-  const kpis = await computeKpis();
+  const [{ items, total }, kpis] = await Promise.all([
+    fetchProspectos(),
+    fetchKpis(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.18),transparent_34%),linear-gradient(135deg,#f8fafc_0%,#eef2f7_45%,#f8fafc_100%)] p-4 dark:bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.12),transparent_35%),linear-gradient(135deg,#020617_0%,#0f172a_55%,#111827_100%)] md:p-6">
       <div className="mx-auto max-w-[1500px]">
-      <ProspeccionClient
-        initialItems={items}
-        initialKpis={kpis}
-        initialTotal={kpis.total}
-      />
+        <ProspeccionClient
+          initialItems={items}
+          initialKpis={kpis}
+          initialTotal={total || kpis.total}
+        />
       </div>
     </div>
   );
