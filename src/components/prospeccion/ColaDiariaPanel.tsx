@@ -135,9 +135,14 @@ function QueueCard({
               variant="outline"
               className="h-8 px-2"
               onClick={() => {
-                window.open(`https://chatwoot.adnexum.net`, "_blank");
+                // Search by phone in Chatwoot contacts
+                const clean = item.telefono.replace(/[^0-9]/g, "");
+                window.open(
+                  `https://chatwoot.adnexum.net/app/accounts/2/contacts?q=${clean}`,
+                  "_blank"
+                );
               }}
-              title="Abrir Chatwoot"
+              title="Buscar en Chatwoot"
             >
               <Phone className="h-3.5 w-3.5" />
             </Button>

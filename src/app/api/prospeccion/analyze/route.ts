@@ -134,6 +134,25 @@ PROXIMO PASO: [accion concreta que Tomas deberia tomar hoy o manana]`,
       const pasoMatch = analisis.match(/PR[OÓ]XIMO PASO:\s*(.+)/i);
       const proximoPaso = pasoMatch?.[1]?.trim() || "";
 
+      // Auto-classify estado based on score + conversation state
+      const autoEstado: Record<string, unknown> = {};
+      if (prospecto.estado === "enviado" || prospecto.estado === "respondio") {
+        // Only auto-progress, never regress
+        if (score >= 8) {
+          autoEstado.estado = "seguimiento";
+        } else if (score >= 6 && prospecto.estado === "enviado") {
+          // Good score but still "enviado" — if they responded, move them
+          const { count: inboundCount } = await supabase
+            .from("prospectos_mensajes")
+            .select("id", { count: "exact", head: true })
+            .eq("telefono", telefono)
+            .eq("direccion", "entrante");
+          if ((inboundCount ?? 0) > 0 && prospecto.estado === "enviado") {
+            autoEstado.estado = "respondio";
+          }
+        }
+      }
+
       await supabase
         .from("prospectos")
         .update({
@@ -141,11 +160,12 @@ PROXIMO PASO: [accion concreta que Tomas deberia tomar hoy o manana]`,
           oportunidad_score: score,
           ultimo_analisis: new Date().toISOString(),
           ...(proximoPaso ? { siguiente_paso: proximoPaso } : {}),
+          ...autoEstado,
         })
         .eq("telefono", telefono);
 
       resultados.push({ telefono, negocio, score });
-      console.log(`[ANALISIS] ${negocio} (${telefono}) -> score ${score}`);
+      console.log(`[ANALISIS] ${negocio} (${telefono}) -> score ${score}${autoEstado.estado ? ` (auto: ${autoEstado.estado})` : ""}`);
     } catch (err) {
       console.error(`[ANALISIS ERROR] ${telefono}:`, err);
     }

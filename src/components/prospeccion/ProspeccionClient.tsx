@@ -45,6 +45,7 @@ import { TareasDelDiaPanel } from "./TareasDelDiaPanel";
 import { ScoreBadge } from "./ScoreBadge";
 import { AnalyticsPanel } from "./AnalyticsPanel";
 import { ColaDiariaPanel } from "./ColaDiariaPanel";
+import { SeguimientoPanel } from "./SeguimientoPanel";
 import { SyncStatusPanel } from "./SyncStatusPanel";
 import {
   ESTADO_LABEL,
@@ -784,9 +785,9 @@ export function ProspeccionClient({
             <Calendar className="mr-1.5 h-3.5 w-3.5" />
             Agenda
           </TabsTrigger>
-          <TabsTrigger value="patrones">
-            <BarChart2 className="mr-1.5 h-3.5 w-3.5" />
-            Patrones
+          <TabsTrigger value="seguimiento">
+            <Activity className="mr-1.5 h-3.5 w-3.5" />
+            Seguimiento
           </TabsTrigger>
           <TabsTrigger value="sync">
             <Signal className="mr-1.5 h-3.5 w-3.5" />
@@ -964,8 +965,8 @@ export function ProspeccionClient({
           <AnalyticsPanel />
         </TabsContent>
 
-        <TabsContent value="patrones" className="mt-4">
-          <PatronesView />
+        <TabsContent value="seguimiento" className="mt-4">
+          <SeguimientoPanel />
         </TabsContent>
 
         <TabsContent value="sync" className="mt-4">
