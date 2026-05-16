@@ -17,6 +17,10 @@ async function checkEndpoint(url: string, method = "GET", timeout = 5000): Promi
   }
 }
 
+function env(key: string): string {
+  return (process.env[key] || "").trim();
+}
+
 export async function GET() {
   const supabase = getSupabase();
   const now = new Date();
@@ -60,13 +64,13 @@ export async function GET() {
       .single(),
 
     // n8n health
-    process.env.N8N_WEBHOOK_BASE
-      ? checkEndpoint(`${process.env.N8N_WEBHOOK_BASE.replace("/webhook", "")}/healthz`)
+    env("N8N_WEBHOOK_BASE")
+      ? checkEndpoint(`${env("N8N_WEBHOOK_BASE").replace("/webhook", "")}/healthz`)
       : Promise.resolve({ ok: false, ms: 0, status: undefined }),
 
     // Self health (API)
     checkEndpoint(
-      `${process.env.NEXT_PUBLIC_APP_URL || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/kpis`
+      `${env("NEXT_PUBLIC_APP_URL") || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/kpis`
     ),
   ]);
 
@@ -95,16 +99,16 @@ export async function GET() {
     recomendaciones.push("Verificar que YCloud tenga configurado el webhook URL correcto");
   }
 
-  if (!process.env.N8N_WEBHOOK_BASE) {
+  if (!env("N8N_WEBHOOK_BASE")) {
     problemas.push("N8N_WEBHOOK_BASE no configurado");
     recomendaciones.push("Agregar N8N_WEBHOOK_BASE en variables de entorno de Vercel");
   }
 
-  if (!process.env.YCLOUD_WEBHOOK_SECRET) {
+  if (!env("YCLOUD_WEBHOOK_SECRET")) {
     recomendaciones.push("Configurar YCLOUD_WEBHOOK_SECRET para verificar firma de webhooks");
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!env("OPENAI_API_KEY")) {
     problemas.push("OPENAI_API_KEY no configurada — analisis IA deshabilitado");
   }
 
@@ -119,27 +123,27 @@ export async function GET() {
         latenciaMs: supabaseCheck.ms,
       },
       n8n: {
-        configurado: Boolean(process.env.N8N_WEBHOOK_BASE),
-        url: process.env.N8N_WEBHOOK_BASE || null,
+        configurado: Boolean(env("N8N_WEBHOOK_BASE")),
+        url: env("N8N_WEBHOOK_BASE") || null,
         health: n8nCheck.ok,
         latenciaMs: n8nCheck.ms,
       },
       vercel: {
         apiOk: vercelCheck.ok,
         latenciaMs: vercelCheck.ms,
-        url: process.env.NEXT_PUBLIC_APP_URL || "https://auto-crm-main-hazel.vercel.app",
+        url: env("NEXT_PUBLIC_APP_URL") || "https://auto-crm-main-hazel.vercel.app",
       },
       ycloud: {
-        webhookSecretConfigurado: Boolean(process.env.YCLOUD_WEBHOOK_SECRET),
-        apiKeyConfigurado: Boolean(process.env.YCLOUD_API_KEY),
-        webhookUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/webhook`,
+        webhookSecretConfigurado: Boolean(env("YCLOUD_WEBHOOK_SECRET")),
+        apiKeyConfigurado: Boolean(env("YCLOUD_API_KEY")),
+        webhookUrl: `${env("NEXT_PUBLIC_APP_URL") || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/webhook`,
       },
       chatwoot: {
-        configurado: Boolean(process.env.CHATWOOT_API_TOKEN),
-        baseUrl: process.env.CHATWOOT_BASE_URL || "https://chatwoot.adnexum.net",
+        configurado: Boolean(env("CHATWOOT_API_TOKEN")),
+        baseUrl: env("CHATWOOT_BASE_URL") || "https://chatwoot.adnexum.net",
       },
       openai: {
-        configurado: Boolean(process.env.OPENAI_API_KEY),
+        configurado: Boolean(env("OPENAI_API_KEY")),
       },
     },
 
@@ -162,7 +166,7 @@ export async function GET() {
 
     webhookConfig: {
       nota: "Para que YCloud envie datos a este sistema, configurar este URL en YCloud Dashboard → Webhooks:",
-      url: `${process.env.NEXT_PUBLIC_APP_URL || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/webhook`,
+      url: `${env("NEXT_PUBLIC_APP_URL") || "https://auto-crm-main-hazel.vercel.app"}/api/prospeccion/webhook`,
       eventosRequeridos: [
         "whatsapp.inbound_message.received",
         "whatsapp.smb.message.echoes",
