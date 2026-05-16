@@ -1,5 +1,5 @@
 // YCloud Webhook — recibe eventos WhatsApp y registra en Supabase
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import {
   verificarFirma,
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
           if (ok) {
             await markOutbound(msg.to, timestamp);
             // Sync outbound message to Chatwoot so agent sees it
-            syncOutboundToChatwoot(msg.to, contenido);
+            after(syncOutboundToChatwoot(msg.to, contenido));
             console.log(`[SALIENTE -> ${msg.to}] ${contenido}`);
           }
         }
@@ -219,7 +219,7 @@ export async function POST(req: NextRequest) {
           if (ok) {
             await markOutbound(msg.to, timestamp);
             // Sync outbound message to Chatwoot so agent sees it
-            syncOutboundToChatwoot(msg.to, contenido);
+            after(syncOutboundToChatwoot(msg.to, contenido));
           }
         }
         break;
