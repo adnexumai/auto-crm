@@ -191,25 +191,7 @@ function DailyCommandCenter({
   const lastMessage = channelStatus?.lastMessage;
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[1.15fr_0.95fr_0.75fr]">
-      <div className="rounded-[1.75rem] border border-border/80 bg-card/95 p-5 shadow-sm">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Plan del dia
-            </p>
-            <h2 className="mt-1 text-xl font-black tracking-tight">
-              Que atender primero
-            </h2>
-          </div>
-          <Badge variant="outline">
-            <ListTodo className="mr-1.5 h-3.5 w-3.5" />
-            tareas
-          </Badge>
-        </div>
-        <TareasDelDiaPanel />
-      </div>
-
+    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-[1.75rem] border border-border/80 bg-card/95 p-5 shadow-sm">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
