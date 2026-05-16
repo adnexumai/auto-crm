@@ -13,7 +13,6 @@ import {
   ChevronRight,
   KanbanSquare,
   ListTodo,
-  Loader2,
   PlusSquare,
   RefreshCw,
   Search,
@@ -59,7 +58,7 @@ import {
 } from "./constants";
 
 const PAGE_SIZE = 50;
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 30_000;
 
 interface Props {
   initialItems: Prospecto[];
@@ -137,137 +136,6 @@ function AgendadosView({ onEdit }: { onEdit: (prospect: Prospecto) => void }) {
           </div>
         );
       })}
-    </div>
-  );
-}
-
-function PatronesView() {
-  const [analysis, setAnalysis] = useState<string | null>(null);
-  const [stats, setStats] = useState<{
-    totalAnalizado: number;
-    respondieron: number;
-    noRespondieron: number;
-    tasaRespuesta: number;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const cached = localStorage.getItem("patrones_analisis");
-    const cachedTs = localStorage.getItem("patrones_ts");
-
-    if (!cached || !cachedTs) return;
-
-    const age = Date.now() - Number.parseInt(cachedTs, 10);
-    if (age > 24 * 60 * 60 * 1000) return;
-
-    setAnalysis(cached);
-    const cachedStats = localStorage.getItem("patrones_stats");
-    if (cachedStats) {
-      setStats(JSON.parse(cachedStats));
-    }
-  }, []);
-
-  async function runAnalysis() {
-    setLoading(true);
-    try {
-      const res = await fetch(withBasePath("/api/prospeccion/patrones"));
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "No se pudo analizar");
-      }
-
-      setAnalysis(data.analisis);
-      setStats(data.stats);
-      localStorage.setItem("patrones_analisis", data.analisis);
-      localStorage.setItem("patrones_stats", JSON.stringify(data.stats));
-      localStorage.setItem("patrones_ts", String(Date.now()));
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "No se pudo analizar"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold">Patrones de prospeccion</h2>
-          <p className="text-xs text-muted-foreground">
-            Que mensajes funcionaron y donde se esta cayendo el embudo.
-          </p>
-        </div>
-        <Button onClick={runAnalysis} disabled={loading} size="sm">
-          {loading ? (
-            <>
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              Analizando...
-            </>
-          ) : (
-            <>
-              <BarChart2 className="mr-1.5 h-3.5 w-3.5" />
-              Analizar
-            </>
-          )}
-        </Button>
-      </div>
-
-      {stats && (
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border bg-muted/40 p-4 text-center">
-            <p className="text-2xl font-bold">{stats.totalAnalizado}</p>
-            <p className="text-xs text-muted-foreground">Prospectos</p>
-          </div>
-          <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{stats.respondieron}</p>
-            <p className="text-xs text-muted-foreground">Respondieron</p>
-          </div>
-          <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-center">
-            <p className="text-2xl font-bold text-primary">{stats.tasaRespuesta}%</p>
-            <p className="text-xs text-muted-foreground">Tasa de respuesta</p>
-          </div>
-        </div>
-      )}
-
-      {analysis ? (
-        <div className="rounded-2xl border bg-card p-5">
-          {analysis.split("\n").map((line, index) => {
-            if (line.startsWith("## ")) {
-              return (
-                <h3 key={index} className="mb-2 mt-4 text-sm font-semibold first:mt-0">
-                  {line.replace("## ", "")}
-                </h3>
-              );
-            }
-
-            if (line.trim().startsWith("- ")) {
-              return (
-                <p key={index} className="my-1 ml-2 text-xs text-foreground/80">
-                  - {line.replace(/^- /, "")}
-                </p>
-              );
-            }
-
-            if (!line.trim()) {
-              return <div key={index} className="h-1" />;
-            }
-
-            return (
-              <p key={index} className="my-1 text-xs text-foreground/80">
-                {line}
-              </p>
-            );
-          })}
-        </div>
-      ) : !loading ? (
-        <div className="py-12 text-center text-muted-foreground">
-          <BarChart2 className="mx-auto mb-3 h-10 w-10 opacity-30" />
-          <p className="text-sm">Corre el analisis para ver donde mejorar.</p>
-          <p className="mt-1 text-xs">Se cachea durante 24 horas.</p>
-        </div>
-      ) : null}
     </div>
   );
 }

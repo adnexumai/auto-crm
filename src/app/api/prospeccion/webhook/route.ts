@@ -4,7 +4,6 @@ import { getSupabase } from "@/lib/supabase";
 import {
   verificarFirma,
   extraerContenido,
-  extraerMediaUrl,
   postN8n,
 } from "@/lib/prospeccion/ycloud";
 import { syncOutboundToChatwoot } from "@/lib/chatwoot";
