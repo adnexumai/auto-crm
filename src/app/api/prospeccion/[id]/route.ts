@@ -1,5 +1,5 @@
 // GET/PATCH/DELETE individual prospect (Supabase)
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -122,15 +122,13 @@ export async function PATCH(
   // Trigger Chatwoot label sync if any relevant field changed
   const shouldSync = [...fieldsChanged].some((f) => SYNC_TRIGGER_FIELDS.has(f));
   if (shouldSync && data) {
-    // Use after() so the work completes even after response is sent
-    after(
-      notifyPipelineLabelsSync({
-        prospectId: String(data.id),
-        phone: data.telefono,
-        estado: data.estado,
-        chatwootConversationId: data.chatwoot_conversation_id ?? null,
-      })
-    );
+    // Await directly — adds ~200ms but guarantees execution in serverless
+    await notifyPipelineLabelsSync({
+      prospectId: String(data.id),
+      phone: data.telefono,
+      estado: data.estado,
+      chatwootConversationId: data.chatwoot_conversation_id ?? null,
+    });
   }
 
   return NextResponse.json(data);
