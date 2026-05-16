@@ -7,6 +7,7 @@ import {
   extraerMediaUrl,
   postN8n,
 } from "@/lib/prospeccion/ycloud";
+import { syncOutboundToChatwoot } from "@/lib/chatwoot";
 
 export const dynamic = "force-dynamic";
 
@@ -190,6 +191,8 @@ export async function POST(req: NextRequest) {
           });
           if (ok) {
             await markOutbound(msg.to, timestamp);
+            // Sync outbound message to Chatwoot so agent sees it
+            syncOutboundToChatwoot(msg.to, contenido);
             console.log(`[SALIENTE -> ${msg.to}] ${contenido}`);
           }
         }
@@ -214,7 +217,11 @@ export async function POST(req: NextRequest) {
             payloadRaw: msg,
             wamid: msg.wamid,
           });
-          if (ok) await markOutbound(msg.to, timestamp);
+          if (ok) {
+            await markOutbound(msg.to, timestamp);
+            // Sync outbound message to Chatwoot so agent sees it
+            syncOutboundToChatwoot(msg.to, contenido);
+          }
         }
         break;
       }

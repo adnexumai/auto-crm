@@ -277,3 +277,56 @@ export async function getChatwootConversationLabels(
   );
   return result?.payload ?? [];
 }
+
+/**
+ * Creates an outgoing message in a Chatwoot conversation.
+ * Used to sync messages sent via YCloud/WhatsApp Business back to Chatwoot.
+ */
+export async function createChatwootOutgoingMessage(
+  conversationId: string | number,
+  content: string,
+): Promise<ChatwootMessage | null> {
+  return chatwootRequest<ChatwootMessage>(
+    `conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        content,
+        message_type: "outgoing",
+        private: false,
+      }),
+    }
+  );
+}
+
+/**
+ * Syncs an outbound WhatsApp message (echo) to Chatwoot.
+ * Finds the conversation by phone, creates outgoing message.
+ * Fire-and-forget safe — logs errors, never throws.
+ */
+export async function syncOutboundToChatwoot(
+  telefono: string,
+  contenido: string,
+): Promise<void> {
+  try {
+    const { configured } = getChatwootConfig();
+    if (!configured) return;
+
+    // Skip placeholder content
+    if (!contenido || contenido.startsWith("[") && contenido.endsWith("]")) {
+      // Still sync media placeholders like [imagen], [audio] etc
+      if (!contenido) return;
+    }
+
+    const { conversationId } = await resolveChatwootConversationByPhone(telefono);
+    if (!conversationId) {
+      console.log(`[chatwoot-sync] No conversation found for ${telefono}, skipping outbound sync`);
+      return;
+    }
+
+    await createChatwootOutgoingMessage(conversationId, contenido);
+    console.log(`[chatwoot-sync] Outbound synced to conversation ${conversationId}: ${contenido.slice(0, 60)}`);
+  } catch (err) {
+    console.error(`[chatwoot-sync] Failed to sync outbound for ${telefono}:`, err);
+  }
+}
