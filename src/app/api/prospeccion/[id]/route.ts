@@ -34,17 +34,29 @@ const SYNC_TRIGGER_FIELDS = new Set([
   "requiere_humano",
 ]);
 
+function buildN8nUrl(path: string): string | null {
+  // Public n8n webhooks are at https://webhook.adnexum.net/webhook/<path>
+  // The env may be set to either "https://webhook.adnexum.net" or
+  // "https://webhook.adnexum.net/webhook" or even "https://n8n.adnexum.net/webhook".
+  // Normalize: strip trailing slash, strip trailing /webhook, then append /webhook/path.
+  const raw = process.env.N8N_WEBHOOK_BASE?.trim();
+  if (!raw) return null;
+  let host = raw.replace(/\/+$/, "").replace(/\/webhook$/i, "");
+  // If host is n8n.adnexum.net (private), the public webhook lives on webhook.adnexum.net
+  host = host.replace(/^https?:\/\/n8n\./i, "https://webhook.");
+  return `${host}/webhook/${path.replace(/^\/+/, "")}`;
+}
+
 async function notifyPipelineLabelsSync(args: {
   prospectId: string;
   phone: string;
   estado: string;
   chatwootConversationId: string | null;
 }) {
-  const base = process.env.N8N_WEBHOOK_BASE?.trim();
-  if (!base) return;
-  const url = `${base.replace(/\/+$/, "")}/webhook/crm-estado-sync`;
+  const url = buildN8nUrl("crm-estado-sync");
+  if (!url) return;
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -54,6 +66,9 @@ async function notifyPipelineLabelsSync(args: {
         chatwootConversationId: args.chatwootConversationId ?? null,
       }),
     });
+    if (!res.ok) {
+      console.error("[crm-estado-sync] HTTP", res.status, "url:", url);
+    }
   } catch (err) {
     console.error("[crm-estado-sync] failed:", err);
   }
