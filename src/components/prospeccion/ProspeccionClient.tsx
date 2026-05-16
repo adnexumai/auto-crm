@@ -43,6 +43,9 @@ import { NuevoProspectoDialog } from "./NuevoProspectoDialog";
 import { ProspectingKanbanBoard } from "./ProspectingKanbanBoard";
 import { TareasDelDiaPanel } from "./TareasDelDiaPanel";
 import { ScoreBadge } from "./ScoreBadge";
+import { AnalyticsPanel } from "./AnalyticsPanel";
+import { ColaDiariaPanel } from "./ColaDiariaPanel";
+import { SyncStatusPanel } from "./SyncStatusPanel";
 import {
   ESTADO_LABEL,
   ESTADO_ORDER,
@@ -756,10 +759,14 @@ export function ProspeccionClient({
       ) : null}
 
       <Tabs defaultValue="leads">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-4 md:grid-cols-8">
           <TabsTrigger value="leads">
             <Target className="mr-1.5 h-3.5 w-3.5" />
             Leads
+          </TabsTrigger>
+          <TabsTrigger value="cola">
+            <Zap className="mr-1.5 h-3.5 w-3.5" />
+            Cola
           </TabsTrigger>
           <TabsTrigger value="tareas">
             <ListTodo className="mr-1.5 h-3.5 w-3.5" />
@@ -769,6 +776,10 @@ export function ProspeccionClient({
             <KanbanSquare className="mr-1.5 h-3.5 w-3.5" />
             Pipeline
           </TabsTrigger>
+          <TabsTrigger value="analytics">
+            <BarChart2 className="mr-1.5 h-3.5 w-3.5" />
+            Analytics
+          </TabsTrigger>
           <TabsTrigger value="agenda">
             <Calendar className="mr-1.5 h-3.5 w-3.5" />
             Agenda
@@ -776,6 +787,10 @@ export function ProspeccionClient({
           <TabsTrigger value="patrones">
             <BarChart2 className="mr-1.5 h-3.5 w-3.5" />
             Patrones
+          </TabsTrigger>
+          <TabsTrigger value="sync">
+            <Signal className="mr-1.5 h-3.5 w-3.5" />
+            Sync
           </TabsTrigger>
         </TabsList>
 
@@ -912,6 +927,10 @@ export function ProspeccionClient({
           ) : null}
         </TabsContent>
 
+        <TabsContent value="cola" className="mt-4">
+          <ColaDiariaPanel />
+        </TabsContent>
+
         <TabsContent value="tareas" className="mt-4">
           <TareasDelDiaPanel />
         </TabsContent>
@@ -941,8 +960,16 @@ export function ProspeccionClient({
           <AgendadosView onEdit={setEditing} />
         </TabsContent>
 
+        <TabsContent value="analytics" className="mt-4">
+          <AnalyticsPanel />
+        </TabsContent>
+
         <TabsContent value="patrones" className="mt-4">
           <PatronesView />
+        </TabsContent>
+
+        <TabsContent value="sync" className="mt-4">
+          <SyncStatusPanel />
         </TabsContent>
       </Tabs>
 
