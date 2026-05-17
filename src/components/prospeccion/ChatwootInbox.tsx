@@ -358,9 +358,9 @@ export function ChatwootInbox() {
   }`;
 
   return (
-    <div className="grid h-[calc(100vh-19rem)] min-h-[600px] grid-cols-1 gap-0 overflow-hidden rounded-2xl border md:grid-cols-[360px_1fr]">
+    <div className="grid h-[calc(100vh-22rem)] max-h-[calc(100vh-22rem)] min-h-[520px] grid-cols-1 gap-0 overflow-hidden rounded-2xl border md:grid-cols-[360px_1fr]">
       {/* LEFT: Conversation list */}
-      <div className="flex flex-col border-r bg-card/50">
+      <div className="flex min-h-0 flex-col overflow-hidden border-r bg-card/50">
         <div className="border-b p-3">
           <Tabs value={filter} onValueChange={(v) => setFilter(v as FilterTab)}>
             <TabsList className="grid w-full grid-cols-3">
