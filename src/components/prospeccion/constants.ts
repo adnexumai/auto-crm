@@ -90,13 +90,15 @@ export interface Kpis {
   respuestasHoy: number;
   tasa: number;
   total: number;
-  calientes: number;
-  tibios: number;
-  requiereHumano: number;
-  destacados: number;
+  totalRespondieron?: number;
   oportunidadesAbiertas: number;
   ultimaActividad: string | Date | null;
   serie: Array<{ dia: string; contactos: number; respuestas: number }>;
+  // Opcionales (no siempre retornados por el endpoint)
+  calientes?: number;
+  tibios?: number;
+  requiereHumano?: number;
+  destacados?: number;
 }
 
 export interface WebAnalysis {

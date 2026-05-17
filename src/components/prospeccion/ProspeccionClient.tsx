@@ -60,10 +60,18 @@ interface Props {
   initialTotal: number;
 }
 
-function StatPill({ label, value }: { label: string; value: number | string }) {
+function StatPill({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string | null | undefined;
+}) {
+  const display =
+    value === null || value === undefined || value === "" ? 0 : value;
   return (
     <div className="rounded-xl border bg-card px-4 py-2.5">
-      <p className="text-2xl font-black leading-none tracking-tight">{value}</p>
+      <p className="text-2xl font-black leading-none tracking-tight">{display}</p>
       <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
         {label}
       </p>
@@ -289,13 +297,13 @@ export function ProspeccionClient({
       </header>
 
       {/* KPIs en una sola fila */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
         <StatPill label="Hoy" value={kpis.contactosHoy} />
         <StatPill label="Respuestas" value={kpis.respuestasHoy} />
-        <StatPill label="Tasa" value={`${kpis.tasa}%`} />
+        <StatPill label="Tasa" value={`${kpis.tasa ?? 0}%`} />
         <StatPill label="Pipeline" value={kpis.oportunidadesAbiertas} />
-        <StatPill label="Calientes" value={kpis.tibios} />
-        <StatPill label="Atención" value={kpis.requiereHumano} />
+        <StatPill label="Respondieron" value={kpis.totalRespondieron} />
+        <StatPill label="Total" value={totalGlobal} />
       </div>
 
       <NuevoProspectoDialog
