@@ -6,6 +6,7 @@ import {
   extraerContenido,
   postN8n,
 } from "@/lib/prospeccion/ycloud";
+import { syncOutboundToChatwoot } from "@/lib/chatwoot";
 
 export const dynamic = "force-dynamic";
 
@@ -189,10 +190,10 @@ export async function POST(req: NextRequest) {
           });
           if (ok) {
             await markOutbound(msg.to, timestamp);
-            // NOTE: Do NOT sync outbound to Chatwoot here.
-            // Chatwoot already has the message (either the agent wrote it there directly,
-            // or the n8n workflow created it). Syncing again creates a loop:
-            // CRM creates msg in Chatwoot → Chatwoot fires webhook → n8n re-sends to YCloud → echo → repeat.
+            // Sync to Chatwoot tagged with wamid as source_id.
+            // The n8n outbound workflow detects this prefix and skips re-sending,
+            // breaking what would otherwise be an infinite loop.
+            await syncOutboundToChatwoot(msg.to, contenido, msg.wamid);
             console.log(`[SALIENTE -> ${msg.to}] ${contenido}`);
           }
         }
@@ -219,7 +220,7 @@ export async function POST(req: NextRequest) {
           });
           if (ok) {
             await markOutbound(msg.to, timestamp);
-            // NOTE: see comment above. No Chatwoot sync to avoid feedback loop.
+            await syncOutboundToChatwoot(msg.to, contenido, msg.wamid);
           }
         }
         break;
