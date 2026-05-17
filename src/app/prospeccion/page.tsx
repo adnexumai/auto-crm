@@ -96,14 +96,12 @@ export default async function ProspeccionPage() {
   ]);
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
-      <div className="mx-auto max-w-[1500px]">
-        <ProspeccionClient
-          initialItems={items}
-          initialKpis={kpis}
-          initialTotal={total || kpis.total}
-        />
-      </div>
+    <div className="mx-auto max-w-[1500px]">
+      <ProspeccionClient
+        initialItems={items}
+        initialKpis={kpis}
+        initialTotal={total || kpis.total}
+      />
     </div>
   );
 }
