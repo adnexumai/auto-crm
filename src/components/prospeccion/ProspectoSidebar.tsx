@@ -5,7 +5,6 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
   AlertTriangle,
-  ChevronRight,
   Flame,
   Loader2,
   RefreshCw,
@@ -301,66 +300,31 @@ export function ProspectoSidebar({ phone, onClose }: Props) {
           </div>
         )}
 
-        {/* Meta */}
-        <div className="space-y-1 border-t pt-2 text-[10px] text-muted-foreground">
-          {prospecto.primerContacto && (
-            <div className="flex justify-between gap-2">
-              <span>Primer contacto</span>
-              <span>
-                {format(new Date(prospecto.primerContacto), "dd MMM yyyy", { locale: es })}
-              </span>
-            </div>
-          )}
-          {prospecto.ultimoContacto && (
-            <div className="flex justify-between gap-2">
-              <span>Último contacto</span>
-              <span>
-                {format(new Date(prospecto.ultimoContacto), "dd MMM HH:mm", { locale: es })}
-              </span>
-            </div>
-          )}
+        {/* Compact meta line */}
+        <p className="border-t pt-2 text-[10px] text-muted-foreground">
+          {prospecto.mensajesEnviados} mensajes
           {prospecto.ultimoAnalisis && (
-            <div className="flex justify-between gap-2">
-              <span>Último análisis IA</span>
-              <span>
-                {format(new Date(prospecto.ultimoAnalisis), "dd MMM", { locale: es })}
-              </span>
-            </div>
+            <span> · análisis {format(new Date(prospecto.ultimoAnalisis), "dd MMM", { locale: es })}</span>
           )}
-          <div className="flex justify-between gap-2">
-            <span>Mensajes enviados</span>
-            <span>{prospecto.mensajesEnviados}</span>
-          </div>
-        </div>
+        </p>
       </div>
 
-      {/* Footer actions */}
-      <div className="space-y-2 border-t p-3">
+      {/* Footer action — single button */}
+      <div className="border-t p-2">
         <Button
           size="sm"
-          variant="outline"
-          className="w-full justify-start text-xs"
+          variant="ghost"
+          className="w-full justify-center text-[11px]"
           onClick={analyze}
           disabled={analyzing}
         >
           {analyzing ? (
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
           ) : (
-            <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            <Sparkles className="mr-1.5 h-3 w-3" />
           )}
-          {analyzing ? "Analizando..." : "Re-analizar con IA"}
+          {analyzing ? "Analizando…" : "Re-analizar con IA"}
         </Button>
-        <a
-          href={`/prospeccion?search=${encodeURIComponent(phoneDigits)}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block"
-        >
-          <Button size="sm" variant="ghost" className="w-full justify-start text-xs">
-            <ChevronRight className="mr-1.5 h-3.5 w-3.5" />
-            Abrir en lista de leads
-          </Button>
-        </a>
       </div>
     </aside>
   );

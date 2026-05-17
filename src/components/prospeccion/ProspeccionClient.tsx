@@ -296,14 +296,12 @@ export function ProspeccionClient({
         </div>
       </header>
 
-      {/* KPIs en una sola fila */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+      {/* KPIs — solo 4 esenciales */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatPill label="Hoy" value={kpis.contactosHoy} />
         <StatPill label="Respuestas" value={kpis.respuestasHoy} />
         <StatPill label="Tasa" value={`${kpis.tasa ?? 0}%`} />
         <StatPill label="Pipeline" value={kpis.oportunidadesAbiertas} />
-        <StatPill label="Respondieron" value={kpis.totalRespondieron} />
-        <StatPill label="Total" value={totalGlobal} />
       </div>
 
       <NuevoProspectoDialog

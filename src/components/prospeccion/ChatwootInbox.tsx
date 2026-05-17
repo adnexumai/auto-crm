@@ -170,15 +170,22 @@ function ConversationRow({
             {conv.lastMessageType === "outgoing" ? "↗ " : ""}
             {conv.lastMessage}
           </p>
-          {conv.labels.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1">
-              {conv.labels.slice(0, 3).map((label) => (
-                <Badge key={label} variant="outline" className="px-1.5 py-0 text-[9px]">
-                  {label}
-                </Badge>
-              ))}
-            </div>
-          )}
+          {/* Solo mostrar labels que no sean internas del sistema */}
+          {(() => {
+            const userLabels = conv.labels.filter(
+              (l) => !/^(pipe_|temp_|int_)/.test(l)
+            );
+            if (userLabels.length === 0) return null;
+            return (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {userLabels.slice(0, 3).map((label) => (
+                  <Badge key={label} variant="outline" className="px-1.5 py-0 text-[9px]">
+                    {label}
+                  </Badge>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </button>
@@ -555,35 +562,10 @@ export function ChatwootInbox() {
 
             {/* Input */}
             <div
-              className={`border-t p-3 ${
-                privateNote ? "bg-amber-50 dark:bg-amber-950/30" : "bg-card"
+              className={`border-t p-3 transition-colors ${
+                privateNote ? "bg-amber-50/60 dark:bg-amber-950/20" : "bg-card"
               }`}
             >
-              <div className="mb-2 flex items-center gap-2 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setPrivateNote(false)}
-                  className={`rounded-md px-2 py-1 transition-colors ${
-                    !privateNote
-                      ? "bg-primary/10 font-semibold text-primary"
-                      : "text-muted-foreground hover:bg-muted/40"
-                  }`}
-                >
-                  Responder
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPrivateNote(true)}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 transition-colors ${
-                    privateNote
-                      ? "bg-amber-500/15 font-semibold text-amber-700 dark:text-amber-300"
-                      : "text-muted-foreground hover:bg-muted/40"
-                  }`}
-                >
-                  <Lock className="h-3 w-3" />
-                  Nota privada
-                </button>
-              </div>
               <div className="flex items-end gap-2">
                 <textarea
                   value={draft}
@@ -596,8 +578,8 @@ export function ChatwootInbox() {
                   }}
                   placeholder={
                     privateNote
-                      ? "Nota interna — no se envía al cliente"
-                      : "Escribí tu respuesta..."
+                      ? "Nota privada (no se envía al cliente)"
+                      : "Escribí tu respuesta…"
                   }
                   rows={1}
                   className="min-h-[40px] max-h-32 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -615,6 +597,18 @@ export function ChatwootInbox() {
                   )}
                 </Button>
               </div>
+              <button
+                type="button"
+                onClick={() => setPrivateNote(!privateNote)}
+                className={`mt-1.5 inline-flex items-center gap-1 text-[10px] transition-colors ${
+                  privateNote
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Lock className="h-2.5 w-2.5" />
+                {privateNote ? "Nota privada activa" : "Modo nota privada"}
+              </button>
             </div>
           </>
         )}
