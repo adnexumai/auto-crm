@@ -131,33 +131,29 @@ export async function GET(req: NextRequest) {
       string,
       { score: number; temperatura: string; estado: string }
     >();
-    const lookupDebug: Record<string, unknown> = {};
     if (phoneDigitsList.length > 0) {
       try {
         const supabase = getSupabase();
         const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
-        lookupDebug.variantsCount = variants.length;
-        lookupDebug.firstVariants = variants.slice(0, 4);
         const { data: prospectos, error: crmErr } = await supabase
           .from("prospectos")
-          .select("telefono, oportunidad_score, temperatura, estado")
+          .select("telefono, oportunidad_score, estado")
           .in("telefono", variants);
-        lookupDebug.rawDataLength = prospectos?.length ?? 0;
-        lookupDebug.rawDataFirst = prospectos?.slice(0, 2);
-        lookupDebug.error = crmErr?.message ?? null;
         if (crmErr) {
           console.warn("[chatwoot/conversations] CRM lookup error:", crmErr.message);
         }
         for (const p of prospectos || []) {
+          const score = Number(p.oportunidad_score ?? 0);
+          // Temperature derived from score (no DB column for it)
+          const temperatura =
+            score >= 7 ? "caliente" : score >= 4 ? "tibio" : "frio";
           crmByPhone.set(digitsOnly(p.telefono), {
-            score: Number(p.oportunidad_score ?? 0),
-            temperatura: p.temperatura || "frio",
+            score,
+            temperatura,
             estado: p.estado || "enviado",
           });
         }
-        lookupDebug.afterMapSize = crmByPhone.size;
       } catch (err) {
-        lookupDebug.exception = String(err);
         console.warn("[chatwoot/conversations] CRM lookup failed:", err);
       }
     }
@@ -194,15 +190,6 @@ export async function GET(req: NextRequest) {
         mineCount: meta.mine_count ?? 0,
         unassignedCount: meta.unassigned_count ?? 0,
         allCount: meta.all_count ?? 0,
-      },
-      _debug: {
-        phoneDigitsCount: phoneDigitsList.length,
-        crmMatchedCount: crmByPhone.size,
-        firstPhones: phoneDigitsList.slice(0, 3),
-        firstMatched: Array.from(crmByPhone.entries()).slice(0, 3),
-        firstPayloadSender: payload[0]?.meta?.sender,
-        firstPayloadMetaKeys: payload[0]?.meta ? Object.keys(payload[0].meta) : [],
-        lookupDebug,
       },
     });
   } catch (err) {
