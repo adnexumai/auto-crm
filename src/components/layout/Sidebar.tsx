@@ -16,6 +16,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Prospección first — es lo que más usás
+const prospectingItems = [
+  { href: "/prospeccion", label: "Prospección", icon: MessageCircle },
+];
+
+const marcaItems = [
+  { href: "/marca-personal", label: "Marca Personal", icon: Megaphone },
+];
+
 const crmItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/conversations", label: "Conversaciones", icon: MessagesSquare },
@@ -25,16 +34,8 @@ const crmItems = [
   { href: "/activities", label: "Actividades", icon: Activity },
 ];
 
-const prospectingItems = [
-  { href: "/prospeccion", label: "Prospeccion diaria", icon: MessageCircle },
-];
-
-const marcaItems = [
-  { href: "/marca-personal", label: "Marca Personal", icon: Megaphone },
-];
-
 const bottomItems = [
-  { href: "/settings", label: "Configuracion", icon: Settings },
+  { href: "/settings", label: "Configuración", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -67,19 +68,7 @@ export function Sidebar() {
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
         <div className="space-y-1">
           <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--sidebar-foreground)]/40">
-            CRM
-          </p>
-          {crmItems.map((item) => (
-            <Link key={item.href} href={item.href} className={linkClass(item.href)}>
-              <item.icon className="h-5 w-5 shrink-0" />
-              {item.label}
-            </Link>
-          ))}
-        </div>
-
-        <div className="space-y-1">
-          <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--sidebar-foreground)]/40">
-            Prospeccion
+            Ventas
           </p>
           {prospectingItems.map((item) => (
             <Link key={item.href} href={item.href} className={linkClass(item.href)}>
@@ -94,6 +83,18 @@ export function Sidebar() {
             Marketing
           </p>
           {marcaItems.map((item) => (
+            <Link key={item.href} href={item.href} className={linkClass(item.href)}>
+              <item.icon className="h-5 w-5 shrink-0" />
+              {item.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="space-y-1">
+          <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--sidebar-foreground)]/40">
+            CRM clásico
+          </p>
+          {crmItems.map((item) => (
             <Link key={item.href} href={item.href} className={linkClass(item.href)}>
               <item.icon className="h-5 w-5 shrink-0" />
               {item.label}

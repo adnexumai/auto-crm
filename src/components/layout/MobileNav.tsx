@@ -7,6 +7,7 @@ import {
   Briefcase,
   Kanban,
   LayoutDashboard,
+  Megaphone,
   MessageCircle,
   MessagesSquare,
   Settings,
@@ -16,14 +17,15 @@ import {
 import { cn } from "@/lib/utils";
 
 const allItems = [
+  { href: "/prospeccion", label: "Prospección", icon: MessageCircle },
+  { href: "/marca-personal", label: "Marca Personal", icon: Megaphone },
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/conversations", label: "Conversaciones", icon: MessagesSquare },
   { href: "/pipeline", label: "Pipeline", icon: Kanban },
   { href: "/contacts", label: "Contactos", icon: Users },
   { href: "/deals", label: "Deals", icon: Briefcase },
   { href: "/activities", label: "Actividades", icon: Activity },
-  { href: "/prospeccion", label: "Prospeccion diaria", icon: MessageCircle },
-  { href: "/settings", label: "Configuracion", icon: Settings },
+  { href: "/settings", label: "Configuración", icon: Settings },
 ];
 
 export function MobileNav() {
