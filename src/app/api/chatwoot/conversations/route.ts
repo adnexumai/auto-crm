@@ -1,6 +1,7 @@
 // List Chatwoot conversations for the inbox view
 import { NextRequest, NextResponse } from "next/server";
 import { getChatwootConfig } from "@/lib/chatwoot";
+import { getSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,14 @@ interface ConversationListItem {
   lastActivity: string | null;
   assigneeName: string | null;
   labels: string[];
+  // Enriched from CRM (Supabase prospectos)
+  crmScore: number | null;
+  crmTemperatura: string | null;
+  crmEstado: string | null;
+}
+
+function digitsOnly(phone: string | null | undefined): string {
+  return (phone || "").replace(/[^\d]/g, "");
 }
 
 function getLastMessageInfo(conv: ChatwootConversationItem): {
@@ -107,9 +116,44 @@ export async function GET(req: NextRequest) {
     const meta = data?.meta ?? {};
     const payload: ChatwootConversationItem[] = data?.payload ?? [];
 
+    // Collect unique phone digits to look up CRM data in one query
+    const phoneDigitsList = Array.from(
+      new Set(
+        payload
+          .map((c) => digitsOnly(c.meta?.sender?.phone_number))
+          .filter((p) => p.length > 0)
+      )
+    );
+
+    // Look up prospectos in Supabase by phone (digits only) — single query
+    const crmByPhone = new Map<
+      string,
+      { score: number; temperatura: string; estado: string }
+    >();
+    if (phoneDigitsList.length > 0) {
+      try {
+        const supabase = getSupabase();
+        const { data: prospectos } = await supabase
+          .from("prospectos")
+          .select("telefono, oportunidad_score, temperatura, estado")
+          .in("telefono", phoneDigitsList);
+        for (const p of prospectos || []) {
+          crmByPhone.set(digitsOnly(p.telefono), {
+            score: Number(p.oportunidad_score ?? 0),
+            temperatura: p.temperatura || "frio",
+            estado: p.estado || "enviado",
+          });
+        }
+      } catch (err) {
+        console.warn("[chatwoot/conversations] CRM lookup failed:", err);
+      }
+    }
+
     const items: ConversationListItem[] = payload.map((conv) => {
       const lm = getLastMessageInfo(conv);
       const sender = conv.meta?.sender;
+      const phoneKey = digitsOnly(sender?.phone_number);
+      const crm = phoneKey ? crmByPhone.get(phoneKey) : null;
       return {
         id: conv.id,
         status: conv.status || "open",
@@ -125,6 +169,9 @@ export async function GET(req: NextRequest) {
           : null,
         assigneeName: conv.assignee?.available_name || conv.assignee?.name || null,
         labels: conv.labels || [],
+        crmScore: crm?.score ?? null,
+        crmTemperatura: crm?.temperatura ?? null,
+        crmEstado: crm?.estado ?? null,
       };
     });
 

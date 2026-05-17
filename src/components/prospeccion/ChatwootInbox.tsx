@@ -41,6 +41,9 @@ interface ConversationListItem {
   lastActivity: string | null;
   assigneeName: string | null;
   labels: string[];
+  crmScore: number | null;
+  crmTemperatura: string | null;
+  crmEstado: string | null;
 }
 
 interface MessageItem {
@@ -89,6 +92,26 @@ function ConversationRow({
   selected: boolean;
   onClick: () => void;
 }) {
+  // Temperature ring color around avatar
+  const tempRing =
+    conv.crmTemperatura === "caliente"
+      ? "ring-2 ring-orange-500/70"
+      : conv.crmTemperatura === "tibio"
+      ? "ring-2 ring-amber-500/70"
+      : conv.crmTemperatura === "frio"
+      ? "ring-2 ring-sky-500/40"
+      : "";
+
+  // Score color
+  const scoreColor =
+    conv.crmScore == null
+      ? null
+      : conv.crmScore >= 7
+      ? "bg-emerald-500 text-white"
+      : conv.crmScore >= 4
+      ? "bg-amber-500 text-white"
+      : "bg-muted text-muted-foreground";
+
   return (
     <button
       type="button"
@@ -98,7 +121,9 @@ function ConversationRow({
       }`}
     >
       <div className="flex items-start gap-3">
-        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold">
+        <div
+          className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold ${tempRing}`}
+        >
           {conv.senderThumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -118,9 +143,19 @@ function ConversationRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="truncate text-sm font-semibold">{conv.senderName}</p>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {timeAgo(conv.lastActivity)}
-            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {scoreColor && (
+                <span
+                  className={`flex h-4 min-w-[18px] items-center justify-center rounded-md px-1 text-[9px] font-bold ${scoreColor}`}
+                  title={`Score ${conv.crmScore}/10`}
+                >
+                  {conv.crmScore}
+                </span>
+              )}
+              <span className="text-[10px] text-muted-foreground">
+                {timeAgo(conv.lastActivity)}
+              </span>
+            </div>
           </div>
           {conv.senderPhone ? (
             <p className="truncate font-mono text-[10px] text-muted-foreground">
