@@ -135,10 +135,22 @@ export async function GET(req: NextRequest) {
       try {
         const supabase = getSupabase();
         const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
-        const { data: prospectos } = await supabase
+        const { data: prospectos, error: crmErr } = await supabase
           .from("prospectos")
           .select("telefono, oportunidad_score, temperatura, estado")
           .in("telefono", variants);
+        if (crmErr) {
+          console.warn(
+            "[chatwoot/conversations] CRM lookup error:",
+            crmErr.message,
+            "variants sample:",
+            variants.slice(0, 3)
+          );
+        } else {
+          console.log(
+            `[chatwoot/conversations] CRM lookup ${prospectos?.length ?? 0}/${variants.length} variants matched`
+          );
+        }
         for (const p of prospectos || []) {
           crmByPhone.set(digitsOnly(p.telefono), {
             score: Number(p.oportunidad_score ?? 0),
