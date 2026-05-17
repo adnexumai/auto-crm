@@ -74,6 +74,7 @@ async function fetchKpis(): Promise<Kpis> {
       respuestasHoy: data.respuestasHoy ?? 0,
       tasa: data.tasa ?? 0,
       total: data.total ?? 0,
+      totalRespondieron: data.totalRespondieron ?? 0,
       calientes: data.calientes ?? data.leadsCalientes ?? 0,
       tibios: data.tibios ?? 0,
       requiereHumano: data.requiereHumano ?? 0,
@@ -95,7 +96,7 @@ export default async function ProspeccionPage() {
   ]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(15,118,110,0.18),transparent_34%),linear-gradient(135deg,#f8fafc_0%,#eef2f7_45%,#f8fafc_100%)] p-4 dark:bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.12),transparent_35%),linear-gradient(135deg,#020617_0%,#0f172a_55%,#111827_100%)] md:p-6">
+    <div className="min-h-screen p-4 md:p-6">
       <div className="mx-auto max-w-[1500px]">
         <ProspeccionClient
           initialItems={items}
