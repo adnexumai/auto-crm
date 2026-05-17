@@ -131,16 +131,20 @@ export async function GET(req: NextRequest) {
       string,
       { score: number; temperatura: string; estado: string }
     >();
+    const lookupDebug: Record<string, unknown> = {};
     if (phoneDigitsList.length > 0) {
       try {
         const supabase = getSupabase();
-        // .in() with both phone variants (with and without "+") is the
-        // most reliable approach — verified in the live simulation debug.
         const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
+        lookupDebug.variantsCount = variants.length;
+        lookupDebug.firstVariants = variants.slice(0, 4);
         const { data: prospectos, error: crmErr } = await supabase
           .from("prospectos")
           .select("telefono, oportunidad_score, temperatura, estado")
           .in("telefono", variants);
+        lookupDebug.rawDataLength = prospectos?.length ?? 0;
+        lookupDebug.rawDataFirst = prospectos?.slice(0, 2);
+        lookupDebug.error = crmErr?.message ?? null;
         if (crmErr) {
           console.warn("[chatwoot/conversations] CRM lookup error:", crmErr.message);
         }
@@ -151,7 +155,9 @@ export async function GET(req: NextRequest) {
             estado: p.estado || "enviado",
           });
         }
+        lookupDebug.afterMapSize = crmByPhone.size;
       } catch (err) {
+        lookupDebug.exception = String(err);
         console.warn("[chatwoot/conversations] CRM lookup failed:", err);
       }
     }
@@ -194,9 +200,9 @@ export async function GET(req: NextRequest) {
         crmMatchedCount: crmByPhone.size,
         firstPhones: phoneDigitsList.slice(0, 3),
         firstMatched: Array.from(crmByPhone.entries()).slice(0, 3),
-        // Inspect raw payload sender data
         firstPayloadSender: payload[0]?.meta?.sender,
         firstPayloadMetaKeys: payload[0]?.meta ? Object.keys(payload[0].meta) : [],
+        lookupDebug,
       },
     });
   } catch (err) {
