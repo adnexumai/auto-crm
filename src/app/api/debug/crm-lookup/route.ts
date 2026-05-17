@@ -61,5 +61,43 @@ export async function GET(req: NextRequest) {
     results.in_variants = { data, error: error?.message };
   }
 
+  // Test 6: real-world case — multiple phones via .in()
+  {
+    const realPhones = [
+      "5492975283819", "5492974194948", "5492975001804",
+      "5491144267202", "542974265783", "5492945532421",
+    ];
+    const variants = realPhones.flatMap((p) => [p, `+${p}`]);
+    const { data, error } = await supabase
+      .from("prospectos")
+      .select("telefono, oportunidad_score")
+      .in("telefono", variants);
+    results.in_multi = {
+      variantsCount: variants.length,
+      matched: data?.length ?? 0,
+      data,
+      error: error?.message,
+    };
+  }
+
+  // Test 7: real-world case — multiple via .or() ilike
+  {
+    const realPhones = [
+      "5492975283819", "5492974194948", "5492975001804",
+      "5491144267202", "542974265783", "5492945532421",
+    ];
+    const orFilter = realPhones.map((p) => `telefono.ilike.%${p}%`).join(",");
+    const { data, error } = await supabase
+      .from("prospectos")
+      .select("telefono, oportunidad_score")
+      .or(orFilter);
+    results.or_multi = {
+      filter: orFilter,
+      matched: data?.length ?? 0,
+      data,
+      error: error?.message,
+    };
+  }
+
   return NextResponse.json(results);
 }
