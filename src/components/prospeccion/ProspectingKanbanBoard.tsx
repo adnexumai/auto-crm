@@ -35,6 +35,45 @@ import {
 } from "@/lib/prospecting";
 import { withBasePath } from "@/lib/paths";
 import { INTENCION_LABEL, TEMPERATURA_LABEL } from "./constants";
+import { Calendar, CheckCircle2, RefreshCw as Refresh, Sparkles, Star, XCircle } from "lucide-react";
+
+// Quick-action transitions per state. Each card shows up to 3 buttons
+// matching its current state so the user can move it without dragging.
+const QUICK_ACTIONS: Record<
+  string,
+  Array<{ to: ProspectEstado; label: string; tone: "primary" | "success" | "danger" | "neutral"; icon: typeof Calendar }>
+> = {
+  enviado: [
+    { to: "respondio", label: "Respondió", tone: "primary", icon: Refresh },
+    { to: "cerrado_negativo", label: "Descartar", tone: "danger", icon: XCircle },
+  ],
+  contactado: [
+    { to: "respondio", label: "Respondió", tone: "primary", icon: Refresh },
+    { to: "cerrado_negativo", label: "Descartar", tone: "danger", icon: XCircle },
+  ],
+  respondio: [
+    { to: "agendado", label: "Agendar", tone: "primary", icon: Calendar },
+    { to: "seguimiento", label: "Seguir", tone: "neutral", icon: Sparkles },
+    { to: "cerrado_negativo", label: "Cerrar -", tone: "danger", icon: XCircle },
+  ],
+  agendado: [
+    { to: "cerrado_positivo", label: "Ganó", tone: "success", icon: CheckCircle2 },
+    { to: "cerrado_negativo", label: "Perdió", tone: "danger", icon: XCircle },
+    { to: "seguimiento", label: "Reactivar", tone: "neutral", icon: Sparkles },
+  ],
+  seguimiento: [
+    { to: "agendado", label: "Agendar", tone: "primary", icon: Calendar },
+    { to: "cerrado_positivo", label: "Ganó", tone: "success", icon: CheckCircle2 },
+    { to: "cerrado_negativo", label: "Perdió", tone: "danger", icon: XCircle },
+  ],
+};
+
+const TONE_CLASSES = {
+  primary: "border-primary/40 text-primary hover:bg-primary/10",
+  success: "border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-950/30",
+  danger: "border-red-500/40 text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30",
+  neutral: "border-border text-muted-foreground hover:bg-muted",
+};
 
 export interface ProspectPipelineItem {
   id: string;
@@ -76,9 +115,13 @@ interface Props {
 function ProspectCard({
   prospect,
   compact = false,
+  onQuickMove,
+  onToggleStar,
 }: {
   prospect: ProspectPipelineItem;
   compact?: boolean;
+  onQuickMove: (id: string, target: ProspectEstado) => void;
+  onToggleStar: (id: string, next: boolean) => void;
 }) {
   const {
     attributes,
@@ -102,12 +145,28 @@ function ProspectCard({
     prospect.temperatura ||
     "Frio";
 
+  // Highlight cards that are urgent: hot leads or those sitting too long
+  const lastContactDate = new Date(prospect.ultimoContacto);
+  const daysSinceContact =
+    (Date.now() - lastContactDate.getTime()) / (1000 * 60 * 60 * 24);
+  const isStale = daysSinceContact > 3 && prospect.estado === "respondio";
+  const isHot =
+    prospect.temperatura === "caliente" || prospect.oportunidadScore >= 7;
+
+  const accent = isHot
+    ? "border-orange-500/40 shadow-[0_0_0_1px_rgba(251,146,60,0.2)]"
+    : isStale
+    ? "border-amber-500/40"
+    : "border-border/70";
+
+  const quickActions = QUICK_ACTIONS[prospect.estado] || [];
+
   return (
     <Card
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className="border-border/70 bg-background shadow-sm"
+      className={`bg-background shadow-sm ${accent}`}
     >
       <div className="flex items-start gap-2 p-3">
         <button
@@ -120,32 +179,42 @@ function ProspectCard({
         </button>
 
         <div className="min-w-0 flex-1 space-y-2">
-          <div className="space-y-1">
-            <p className="truncate text-sm font-semibold">{prospect.displayName}</p>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Phone className="h-3 w-3" />
-              <span className="truncate">{prospect.telefono}</span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{prospect.displayName}</p>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Phone className="h-3 w-3" />
+                <span className="truncate">{prospect.telefono}</span>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleStar(prospect.id, !prospect.destacado);
+              }}
+              className="shrink-0 text-muted-foreground hover:text-amber-500"
+              aria-label="Destacar"
+            >
+              <Star
+                className={`h-4 w-4 ${
+                  prospect.destacado ? "fill-amber-500 text-amber-500" : ""
+                }`}
+              />
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <ScoreBadge score={prospect.oportunidadScore} />
-            <Badge variant={prospect.temperatura === "caliente" ? "default" : "secondary"} className="text-[10px]">
+            <Badge
+              variant={prospect.temperatura === "caliente" ? "default" : "secondary"}
+              className="text-[10px]"
+            >
               {temperaturaLabel}
             </Badge>
-            {prospect.rubro && prospect.rubro !== "general" && (
-              <Badge variant="outline" className="text-[10px]">
-                {prospect.rubro}
-              </Badge>
-            )}
             {prospect.requiereHumano && (
               <Badge variant="destructive" className="text-[10px]">
                 humano
-              </Badge>
-            )}
-            {prospect.destacado && (
-              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200">
-                destacado
               </Badge>
             )}
             {intenciones.slice(0, 1).map((intencion) => (
@@ -153,11 +222,6 @@ function ProspectCard({
                 {INTENCION_LABEL[intencion]}
               </Badge>
             ))}
-            {prospect.respondio && (
-              <Badge variant="secondary" className="text-[10px]">
-                respondio
-              </Badge>
-            )}
           </div>
 
           {nextStep && (
@@ -180,17 +244,36 @@ function ProspectCard({
             <span>{prospect.mensajesEnviados} msgs</span>
           </div>
 
-          <div className="flex gap-2 pt-1">
-            <a
-              href={withBasePath(`/conversations?prospect=${prospect.id}`)}
-              className="inline-flex"
-            >
-              <Button size="sm" variant="outline" className="h-7 text-[11px]">
-                <MessageSquare className="mr-1 h-3.5 w-3.5" />
+          {/* Quick actions per state */}
+          {quickActions.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {quickActions.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <button
+                    key={action.to}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuickMove(prospect.id, action.to);
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-[10px] font-medium transition-colors ${TONE_CLASSES[action.tone]}`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {action.label}
+                  </button>
+                );
+              })}
+              <a
+                href={withBasePath(`/prospeccion/inbox`)}
+                onClick={(e) => e.stopPropagation()}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted"
+              >
+                <MessageSquare className="h-3 w-3" />
                 Inbox
-              </Button>
-            </a>
-          </div>
+              </a>
+            </div>
+          )}
         </div>
       </div>
     </Card>
@@ -200,9 +283,13 @@ function ProspectCard({
 function Column({
   column,
   compact = false,
+  onQuickMove,
+  onToggleStar,
 }: {
   column: ProspectPipelineColumn;
   compact?: boolean;
+  onQuickMove: (id: string, target: ProspectEstado) => void;
+  onToggleStar: (id: string, next: boolean) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -235,7 +322,13 @@ function Column({
       >
         <div className="flex min-h-[220px] flex-1 flex-col gap-3 p-3">
           {column.prospects.map((prospect) => (
-            <ProspectCard key={prospect.id} prospect={prospect} compact={compact} />
+            <ProspectCard
+              key={prospect.id}
+              prospect={prospect}
+              compact={compact}
+              onQuickMove={onQuickMove}
+              onToggleStar={onToggleStar}
+            />
           ))}
         </div>
       </SortableContext>
@@ -381,6 +474,81 @@ export function ProspectingKanbanBoard({
     [locateColumn]
   );
 
+  const handleQuickMove = useCallback(
+    async (id: string, target: ProspectEstado) => {
+      // Optimistic: move card between columns
+      snapshotRef.current = columns;
+      setColumns((prev) => {
+        let moving: ProspectPipelineItem | null = null;
+        const next = prev.map((col) => {
+          const found = col.prospects.find((p) => p.id === id);
+          if (found && !moving) {
+            moving = { ...found, estado: target };
+          }
+          return {
+            ...col,
+            prospects: col.prospects.filter((p) => p.id !== id),
+          };
+        });
+        if (moving) {
+          return next.map((col) =>
+            col.id === target
+              ? { ...col, prospects: [moving as ProspectPipelineItem, ...col.prospects] }
+              : col
+          );
+        }
+        return prev;
+      });
+
+      try {
+        const res = await fetch(withBasePath(`/api/prospeccion/${id}`), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ estado: target }),
+        });
+        if (!res.ok) throw new Error();
+        toast.success(`Movido a ${target.replace("_", " ")}`);
+      } catch {
+        setColumns(snapshotRef.current);
+        toast.error("No se pudo mover el prospecto");
+      }
+    },
+    [columns]
+  );
+
+  const handleToggleStar = useCallback(
+    async (id: string, next: boolean) => {
+      // Optimistic
+      setColumns((prev) =>
+        prev.map((col) => ({
+          ...col,
+          prospects: col.prospects.map((p) =>
+            p.id === id ? { ...p, destacado: next } : p
+          ),
+        }))
+      );
+      try {
+        const res = await fetch(withBasePath(`/api/prospeccion/${id}`), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ destacado: next }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        setColumns((prev) =>
+          prev.map((col) => ({
+            ...col,
+            prospects: col.prospects.map((p) =>
+              p.id === id ? { ...p, destacado: !next } : p
+            ),
+          }))
+        );
+        toast.error("No se pudo actualizar destacado");
+      }
+    },
+    []
+  );
+
   return (
     <DndContext
       sensors={sensors}
@@ -391,14 +559,25 @@ export function ProspectingKanbanBoard({
     >
       <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((column) => (
-          <Column key={column.id} column={column} compact={compact} />
+          <Column
+            key={column.id}
+            column={column}
+            compact={compact}
+            onQuickMove={handleQuickMove}
+            onToggleStar={handleToggleStar}
+          />
         ))}
       </div>
 
       <DragOverlay>
         {activeProspect ? (
           <div className="w-[320px]">
-            <ProspectCard prospect={activeProspect} compact={compact} />
+            <ProspectCard
+              prospect={activeProspect}
+              compact={compact}
+              onQuickMove={handleQuickMove}
+              onToggleStar={handleToggleStar}
+            />
           </div>
         ) : null}
       </DragOverlay>
