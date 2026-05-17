@@ -47,7 +47,7 @@ import { AnalyticsPanel } from "./AnalyticsPanel";
 import { ColaDiariaPanel } from "./ColaDiariaPanel";
 import { SeguimientoPanel } from "./SeguimientoPanel";
 import { SyncStatusPanel } from "./SyncStatusPanel";
-import { ChatwootEmbed } from "./ChatwootEmbed";
+import { ChatwootInbox } from "./ChatwootInbox";
 import {
   ESTADO_LABEL,
   ESTADO_ORDER,
@@ -785,7 +785,7 @@ export function ProspeccionClient({
         </TabsContent>
 
         <TabsContent value="chatwoot" className="mt-4">
-          <ChatwootEmbed />
+          <ChatwootInbox />
         </TabsContent>
 
         <TabsContent value="cola" className="mt-4">
