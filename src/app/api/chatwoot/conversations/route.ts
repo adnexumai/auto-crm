@@ -134,22 +134,18 @@ export async function GET(req: NextRequest) {
     if (phoneDigitsList.length > 0) {
       try {
         const supabase = getSupabase();
-        const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
+        // Use ilike OR filter — same pattern as /api/prospeccion search
+        // (Postgres' .in() with literal + got tricky; ilike just works).
+        const orFilter = phoneDigitsList
+          .map((p) => `telefono.ilike.%${p}%`)
+          .join(",");
         const { data: prospectos, error: crmErr } = await supabase
           .from("prospectos")
           .select("telefono, oportunidad_score, temperatura, estado")
-          .in("telefono", variants);
+          .or(orFilter)
+          .limit(phoneDigitsList.length * 2);
         if (crmErr) {
-          console.warn(
-            "[chatwoot/conversations] CRM lookup error:",
-            crmErr.message,
-            "variants sample:",
-            variants.slice(0, 3)
-          );
-        } else {
-          console.log(
-            `[chatwoot/conversations] CRM lookup ${prospectos?.length ?? 0}/${variants.length} variants matched`
-          );
+          console.warn("[chatwoot/conversations] CRM lookup error:", crmErr.message);
         }
         for (const p of prospectos || []) {
           crmByPhone.set(digitsOnly(p.telefono), {
