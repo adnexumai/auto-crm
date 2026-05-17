@@ -8,6 +8,9 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
+  Lock,
+  PanelRightClose,
+  PanelRightOpen,
   RefreshCw,
   Search,
   Send,
@@ -19,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withBasePath } from "@/lib/paths";
+import { ProspectoSidebar } from "./ProspectoSidebar";
 
 const CHATWOOT_BASE =
   process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL || "https://chatwoot.adnexum.net";
@@ -225,6 +229,8 @@ export function ChatwootInbox() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [resolving, setResolving] = useState(false);
+  const [privateNote, setPrivateNote] = useState(false);
+  const [showProspect, setShowProspect] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -305,6 +311,7 @@ export function ChatwootInbox() {
     if (!selectedId || !draft.trim() || sending) return;
     setSending(true);
     const text = draft.trim();
+    const asPrivate = privateNote;
     setDraft("");
     try {
       const res = await fetch(
@@ -312,7 +319,7 @@ export function ChatwootInbox() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: text }),
+          body: JSON.stringify({ content: text, private: asPrivate }),
         }
       );
       if (!res.ok) throw new Error("No se pudo enviar");
@@ -323,7 +330,7 @@ export function ChatwootInbox() {
       // Refresh list in background
       void loadConversations();
     } catch {
-      toast.error("No se pudo enviar el mensaje");
+      toast.error(asPrivate ? "No se pudo guardar la nota" : "No se pudo enviar el mensaje");
       setDraft(text);
     } finally {
       setSending(false);
@@ -357,8 +364,15 @@ export function ChatwootInbox() {
     selectedId || ""
   }`;
 
+  const showRightPanel = selectedConv && showProspect;
+  const gridCols = showRightPanel
+    ? "md:grid-cols-[340px_1fr_320px]"
+    : "md:grid-cols-[340px_1fr]";
+
   return (
-    <div className="grid h-[calc(100vh-22rem)] max-h-[calc(100vh-22rem)] min-h-[520px] grid-cols-1 gap-0 overflow-hidden rounded-2xl border md:grid-cols-[360px_1fr]">
+    <div
+      className={`grid h-[calc(100vh-22rem)] max-h-[calc(100vh-22rem)] min-h-[520px] grid-cols-1 gap-0 overflow-hidden rounded-2xl border ${gridCols}`}
+    >
       {/* LEFT: Conversation list */}
       <div className="flex min-h-0 flex-col overflow-hidden border-r bg-card/50">
         <div className="border-b p-3">
@@ -463,6 +477,19 @@ export function ChatwootInbox() {
                     <XCircle className="h-3.5 w-3.5" />
                   )}
                 </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2"
+                  onClick={() => setShowProspect(!showProspect)}
+                  title={showProspect ? "Ocultar panel de prospecto" : "Mostrar prospecto"}
+                >
+                  {showProspect ? (
+                    <PanelRightClose className="h-3.5 w-3.5" />
+                  ) : (
+                    <PanelRightOpen className="h-3.5 w-3.5" />
+                  )}
+                </Button>
                 <a
                   href={chatwootDirectUrl}
                   target="_blank"
@@ -492,36 +519,79 @@ export function ChatwootInbox() {
             </div>
 
             {/* Input */}
-            <div className="flex items-end gap-2 border-t bg-card p-3">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
+            <div
+              className={`border-t p-3 ${
+                privateNote ? "bg-amber-50 dark:bg-amber-950/30" : "bg-card"
+              }`}
+            >
+              <div className="mb-2 flex items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setPrivateNote(false)}
+                  className={`rounded-md px-2 py-1 transition-colors ${
+                    !privateNote
+                      ? "bg-primary/10 font-semibold text-primary"
+                      : "text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  Responder
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrivateNote(true)}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 transition-colors ${
+                    privateNote
+                      ? "bg-amber-500/15 font-semibold text-amber-700 dark:text-amber-300"
+                      : "text-muted-foreground hover:bg-muted/40"
+                  }`}
+                >
+                  <Lock className="h-3 w-3" />
+                  Nota privada
+                </button>
+              </div>
+              <div className="flex items-end gap-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
+                  placeholder={
+                    privateNote
+                      ? "Nota interna — no se envía al cliente"
+                      : "Escribí tu respuesta..."
                   }
-                }}
-                placeholder="Escribí tu respuesta... (Enter para enviar, Shift+Enter para nueva línea)"
-                rows={1}
-                className="min-h-[40px] max-h-32 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              />
-              <Button
-                size="sm"
-                onClick={sendMessage}
-                disabled={sending || !draft.trim()}
-                className="h-10 shrink-0"
-              >
-                {sending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
+                  rows={1}
+                  className="min-h-[40px] max-h-32 flex-1 resize-none rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                />
+                <Button
+                  size="sm"
+                  onClick={sendMessage}
+                  disabled={sending || !draft.trim()}
+                  className="h-10 shrink-0"
+                >
+                  {sending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </>
         )}
       </div>
+
+      {/* RIGHT: Prospect sidebar (only when conversation selected + toggle on) */}
+      {showRightPanel && (
+        <ProspectoSidebar
+          phone={selectedConv.senderPhone || selectedConv.senderName}
+          onClose={() => setShowProspect(false)}
+        />
+      )}
     </div>
   );
 }
