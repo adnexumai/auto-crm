@@ -329,10 +329,24 @@ export async function syncOutboundToChatwoot(
       return;
     }
 
-    // Tag with wamid as source_id (prefix it if it doesn't start with wamid.)
     const sourceId = wamid
       ? (wamid.startsWith("wamid.") ? wamid : `wamid.${wamid}`)
       : null;
+
+    // Dedupe: if a message with this source_id already exists in this
+    // conversation, skip — Chatwoot received it directly (agent wrote from
+    // the Chatwoot UI) or we already synced this wamid.
+    if (sourceId) {
+      const existingMessages = await getChatwootConversationMessages(conversationId);
+      const hasMatch = existingMessages.some(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (m: any) => m?.source_id === sourceId,
+      );
+      if (hasMatch) {
+        console.log(`[chatwoot-sync] Already synced ${sourceId}, skipping`);
+        return;
+      }
+    }
 
     await createChatwootOutgoingMessage(conversationId, contenido, sourceId);
     console.log(`[chatwoot-sync] Outbound synced to conversation ${conversationId} (source=${sourceId}): ${contenido.slice(0, 60)}`);
