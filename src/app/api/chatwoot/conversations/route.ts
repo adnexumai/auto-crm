@@ -125,7 +125,8 @@ export async function GET(req: NextRequest) {
       )
     );
 
-    // Look up prospectos in Supabase by phone (digits only) — single query
+    // Look up prospectos in Supabase by phone — try both with and without
+    // the "+" prefix because Supabase rows can be stored either way
     const crmByPhone = new Map<
       string,
       { score: number; temperatura: string; estado: string }
@@ -133,10 +134,11 @@ export async function GET(req: NextRequest) {
     if (phoneDigitsList.length > 0) {
       try {
         const supabase = getSupabase();
+        const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
         const { data: prospectos } = await supabase
           .from("prospectos")
           .select("telefono, oportunidad_score, temperatura, estado")
-          .in("telefono", phoneDigitsList);
+          .in("telefono", variants);
         for (const p of prospectos || []) {
           crmByPhone.set(digitsOnly(p.telefono), {
             score: Number(p.oportunidad_score ?? 0),
