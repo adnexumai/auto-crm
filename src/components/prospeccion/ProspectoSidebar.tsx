@@ -165,7 +165,11 @@ export function ProspectoSidebar({ phone, onClose }: Props) {
     );
   }
 
-  const tempKey = (prospecto.temperatura || "frio") as keyof typeof TEMPERATURA_ICON;
+  // Derive temperature from score so it stays consistent with the conversation
+  // list — the prospectos table doesn't have a stored temperatura column.
+  const score = prospecto.oportunidadScore || 0;
+  const tempKey: keyof typeof TEMPERATURA_ICON =
+    score >= 7 ? "caliente" : score >= 4 ? "tibio" : "frio";
   const TempIcon = TEMPERATURA_ICON[tempKey] || Snowflake;
 
   return (
