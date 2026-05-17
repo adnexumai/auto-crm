@@ -93,19 +93,6 @@ export function buildChatwootAppUrl(conversationId?: string | number | null) {
     : `${baseUrl}/app/accounts/${accountId}`;
 }
 
-export function buildChatwootProxyUrl(conversationId?: string | number | null) {
-  const { accountId, inboxId, configured } = getChatwootConfig();
-  if (!configured) return null;
-
-  if (conversationId) {
-    return `/api/chatwoot/proxy/app/accounts/${accountId}/conversations/${conversationId}`;
-  }
-
-  return inboxId
-    ? `/api/chatwoot/proxy/app/accounts/${accountId}/inbox/${inboxId}`
-    : `/api/chatwoot/proxy/app/accounts/${accountId}`;
-}
-
 async function chatwootRequest<T>(
   path: string,
   init?: RequestInit & { allow404?: boolean }
@@ -137,45 +124,6 @@ async function chatwootRequest<T>(
 
   if (response.status === 204) return null;
   return (await response.json()) as T;
-}
-
-export async function getChatwootFrameDiagnostics() {
-  const { baseUrl, accountId, configured } = getChatwootConfig();
-  if (!configured) {
-    return {
-      directIframeAllowed: false,
-      xFrameOptions: null,
-      reason: "Chatwoot no est\u00e1 configurado en variables de entorno.",
-    };
-  }
-
-  try {
-    const response = await fetch(`${baseUrl}/app/accounts/${accountId}`, {
-      method: "HEAD",
-      cache: "no-store",
-      redirect: "manual",
-    });
-    const xFrameOptions = response.headers.get("x-frame-options");
-    const directIframeAllowed =
-      !xFrameOptions || xFrameOptions.toUpperCase() === "ALLOWALL";
-
-    return {
-      directIframeAllowed,
-      xFrameOptions,
-      reason: directIframeAllowed
-        ? null
-        : `Chatwoot responde con X-Frame-Options: ${xFrameOptions ?? "desconocido"}.`,
-    };
-  } catch (error) {
-    return {
-      directIframeAllowed: false,
-      xFrameOptions: null,
-      reason:
-        error instanceof Error
-          ? error.message
-          : "No se pudo validar el modo embed de Chatwoot.",
-    };
-  }
 }
 
 export async function searchChatwootContactsByPhone(phone: string) {
