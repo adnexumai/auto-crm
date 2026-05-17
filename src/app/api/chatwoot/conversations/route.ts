@@ -192,6 +192,12 @@ export async function GET(req: NextRequest) {
         unassignedCount: meta.unassigned_count ?? 0,
         allCount: meta.all_count ?? 0,
       },
+      _debug: {
+        phoneDigitsCount: phoneDigitsList.length,
+        crmMatchedCount: crmByPhone.size,
+        firstPhones: phoneDigitsList.slice(0, 3),
+        firstMatched: Array.from(crmByPhone.entries()).slice(0, 3),
+      },
     });
   } catch (err) {
     return NextResponse.json(
