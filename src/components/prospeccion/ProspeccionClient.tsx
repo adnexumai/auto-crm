@@ -4,23 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  Activity,
-  ArrowRight,
-  BarChart2,
   Calendar,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Inbox,
   KanbanSquare,
-  ListTodo,
-  MessageSquare,
+  ListChecks,
   PlusSquare,
   RefreshCw,
   Search,
-  Signal,
-  Star,
+  Settings2,
   Target,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -35,8 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KpiCards } from "./KpiCards";
-import { KpiChart } from "./KpiChart";
 import { ProspectoTable } from "./ProspectoTable";
 import { EditarProspectoDialog } from "./EditarProspectoDialog";
 import { NuevoProspectoDialog } from "./NuevoProspectoDialog";
@@ -68,6 +60,17 @@ interface Props {
   initialTotal: number;
 }
 
+function StatPill({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl border bg-card px-4 py-2.5">
+      <p className="text-2xl font-black leading-none tracking-tight">{value}</p>
+      <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </p>
+    </div>
+  );
+}
+
 function AgendadosView({ onEdit }: { onEdit: (prospect: Prospecto) => void }) {
   const [items, setItems] = useState<Prospecto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,24 +79,28 @@ function AgendadosView({ onEdit }: { onEdit: (prospect: Prospecto) => void }) {
     fetch(withBasePath("/api/prospeccion?estado=agendado&pageSize=100"))
       .then((res) => res.json())
       .then((data) => {
-        const nextItems = (data.items || []).sort((left: Prospecto, right: Prospecto) => {
-          const leftTime = left.fechaAgendado
-            ? new Date(left.fechaAgendado).getTime()
-            : Number.POSITIVE_INFINITY;
-          const rightTime = right.fechaAgendado
-            ? new Date(right.fechaAgendado).getTime()
-            : Number.POSITIVE_INFINITY;
-
-          return leftTime - rightTime;
-        });
-
-        setItems(nextItems);
+        const sorted = (data.items || []).sort(
+          (a: Prospecto, b: Prospecto) => {
+            const aTime = a.fechaAgendado
+              ? new Date(a.fechaAgendado).getTime()
+              : Number.POSITIVE_INFINITY;
+            const bTime = b.fechaAgendado
+              ? new Date(b.fechaAgendado).getTime()
+              : Number.POSITIVE_INFINITY;
+            return aTime - bTime;
+          }
+        );
+        setItems(sorted);
       })
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
-    return <p className="py-8 text-center text-sm text-muted-foreground">Cargando agenda...</p>;
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        Cargando agenda...
+      </p>
+    );
   }
 
   if (items.length === 0) {
@@ -101,226 +108,47 @@ function AgendadosView({ onEdit }: { onEdit: (prospect: Prospecto) => void }) {
       <div className="py-16 text-center text-muted-foreground">
         <Calendar className="mx-auto mb-3 h-10 w-10 opacity-30" />
         <p className="text-sm">No hay reuniones agendadas.</p>
-        <p className="mt-1 text-xs">Mueve un lead a Reunion agendada y define fecha.</p>
+        <p className="mt-1 text-xs">
+          Mové un lead al estado &quot;Agendado&quot; y definí fecha.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {items.map((prospect) => {
-        const title = prospect.negocio || prospect.nombreContacto || prospect.telefono;
+        const title =
+          prospect.negocio || prospect.nombreContacto || prospect.telefono;
         const formattedDate = prospect.fechaAgendado
-          ? format(new Date(prospect.fechaAgendado), "EEEE dd 'de' MMMM - HH:mm", {
-              locale: es,
-            })
+          ? format(
+              new Date(prospect.fechaAgendado),
+              "EEEE dd 'de' MMMM - HH:mm",
+              { locale: es }
+            )
           : "Sin fecha";
 
         return (
-          <div
+          <button
             key={prospect.id}
-            className="flex items-center gap-4 rounded-2xl border border-border/70 bg-card p-4"
+            type="button"
+            onClick={() => onEdit(prospect)}
+            className="flex w-full items-center gap-4 rounded-xl border bg-card p-4 text-left transition hover:border-primary/40"
           >
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold">{title}</p>
-              <p className="font-mono text-xs text-muted-foreground">{prospect.telefono}</p>
-              <p className="mt-1 text-sm font-medium text-primary capitalize">
+              <p className="truncate text-sm font-semibold">{title}</p>
+              <p className="font-mono text-xs text-muted-foreground">
+                {prospect.telefono}
+              </p>
+              <p className="mt-1 text-sm font-medium capitalize text-primary">
                 {formattedDate}
               </p>
             </div>
-
-            <div className="flex items-center gap-2">
-              <ScoreBadge score={prospect.oportunidadScore} />
-              <Button size="sm" variant="outline" onClick={() => onEdit(prospect)}>
-                Editar
-              </Button>
-            </div>
-          </div>
+            <ScoreBadge score={prospect.oportunidadScore} />
+          </button>
         );
       })}
     </div>
-  );
-}
-
-type ChannelStatus = {
-  channel: string;
-  connected: boolean;
-  ycloudKeyConfigured: boolean;
-  chatwootDirectConfigured: boolean;
-  n8nWebhookConfigured: boolean;
-  whatsappNumber: string | null;
-  lastMessage: {
-    telefono: string;
-    direccion: string;
-    timestamp: string;
-  } | null;
-};
-
-function SignalPill({
-  active,
-  label,
-}: {
-  active: boolean;
-  label: string;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground">
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          active ? "bg-emerald-500" : "bg-amber-500"
-        }`}
-      />
-      {label}
-    </span>
-  );
-}
-
-function DailyCommandCenter({
-  kpis,
-  topOpportunities,
-  channelStatus,
-  lastSyncAt,
-  onEdit,
-  onRefresh,
-}: {
-  kpis: Kpis;
-  topOpportunities: Prospecto[];
-  channelStatus: ChannelStatus | null;
-  lastSyncAt: Date | null;
-  onEdit: (prospect: Prospecto) => void;
-  onRefresh: () => void;
-}) {
-  const lastMessage = channelStatus?.lastMessage;
-
-  return (
-    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="rounded-[1.75rem] border border-border/80 bg-card/95 p-5 shadow-sm">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Oportunidades
-            </p>
-            <h2 className="mt-1 text-xl font-black tracking-tight">
-              Leads para abrir ahora
-            </h2>
-          </div>
-          <Badge className="bg-amber-500 text-white hover:bg-amber-500">
-            <Star className="mr-1.5 h-3.5 w-3.5" />
-            prioridad
-          </Badge>
-        </div>
-
-        {topOpportunities.length > 0 ? (
-          <div className="space-y-3">
-            {topOpportunities.map((prospect) => (
-              <button
-                key={prospect.id}
-                type="button"
-                onClick={() => onEdit(prospect)}
-                className="group w-full rounded-2xl border border-border bg-background p-4 text-left transition hover:border-primary/40 hover:bg-muted/40"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold">
-                      {prospect.negocio || prospect.nombreContacto || prospect.telefono}
-                    </p>
-                    <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                      {prospect.telefono}
-                    </p>
-                  </div>
-                  <ScoreBadge score={prospect.oportunidadScore} />
-                </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                  {prospect.proximoPaso || prospect.ultimoMensaje || "Definir siguiente accion."}
-                </p>
-                <div className="mt-3 flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {TEMPERATURA_LABEL[prospect.temperatura as keyof typeof TEMPERATURA_LABEL] || prospect.temperatura || "Frio"}
-                    </Badge>
-                    {prospect.requiereHumano ? (
-                      <Badge variant="destructive" className="text-[10px]">
-                        humano
-                      </Badge>
-                    ) : null}
-                    {prospect.chatwootConversationId ? (
-                      <Badge variant="outline" className="text-[10px]">
-                        chatwoot
-                      </Badge>
-                    ) : null}
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                </div>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-            No hay oportunidades marcadas. Usa estrella, temperatura o score alto para destacarlas.
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-[1.75rem] border border-border/80 bg-card/95 p-5 shadow-sm">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Canal
-            </p>
-            <h2 className="mt-1 text-xl font-black tracking-tight">
-              Estado live
-            </h2>
-          </div>
-          {channelStatus?.connected ? (
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          ) : (
-            <Activity className="h-5 w-5 text-amber-500" />
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <SignalPill active={Boolean(channelStatus?.ycloudKeyConfigured)} label="YCloud configurado" />
-          <SignalPill active={Boolean(channelStatus?.chatwootDirectConfigured)} label="Chatwoot configurado" />
-          <SignalPill active={Boolean(channelStatus?.n8nWebhookConfigured)} label="n8n webhook activo" />
-        </div>
-
-        <div className="mt-5 rounded-2xl bg-muted/50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Ultima actividad
-          </p>
-          {lastMessage ? (
-            <div className="mt-2 space-y-1">
-              <p className="text-sm font-bold">{lastMessage.telefono}</p>
-              <p className="text-xs text-muted-foreground">
-                {lastMessage.direccion} - {format(new Date(lastMessage.timestamp), "HH:mm:ss")}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">Sin actividad reciente.</p>
-          )}
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2 text-center">
-          <div className="rounded-2xl border bg-background p-3">
-            <p className="text-2xl font-black">{kpis.tibios}</p>
-            <p className="text-[11px] text-muted-foreground">tibios</p>
-          </div>
-          <div className="rounded-2xl border bg-background p-3">
-            <p className="text-2xl font-black">{kpis.requiereHumano}</p>
-            <p className="text-[11px] text-muted-foreground">humanos</p>
-          </div>
-        </div>
-
-        <Button variant="outline" size="sm" onClick={onRefresh} className="mt-4 w-full">
-          <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-          Refrescar ahora
-        </Button>
-
-        <p className="mt-3 text-center text-[11px] text-muted-foreground">
-          Sync local: {lastSyncAt ? format(lastSyncAt, "HH:mm:ss") : "inicial"}
-        </p>
-      </div>
-    </section>
   );
 }
 
@@ -338,35 +166,29 @@ export function ProspeccionClient({
   const [estado, setEstado] = useState("all");
   const [temperatura, setTemperatura] = useState("all");
   const [intencion, setIntencion] = useState("all");
-  const [requiereHumano, setRequiereHumano] = useState("all");
-  const [destacado, setDestacado] = useState("all");
   const [page, setPage] = useState(0);
-  const [analyzingAll, setAnalyzingAll] = useState(false);
   const [editing, setEditing] = useState<Prospecto | null>(null);
   const [showNewProspect, setShowNewProspect] = useState(false);
-  const [pipelineRefreshToken, setPipelineRefreshToken] = useState(0);
-  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
-  const [channelStatus, setChannelStatus] = useState<ChannelStatus | null>(null);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pipelineToken, setPipelineToken] = useState(0);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(
-    async (opts: {
-      page?: number;
-      search?: string;
-      estado?: string;
-      temperatura?: string;
-      intencion?: string;
-      requiereHumano?: string;
-      destacado?: string;
-      silent?: boolean;
-    } = {}) => {
+    async (
+      opts: {
+        page?: number;
+        search?: string;
+        estado?: string;
+        temperatura?: string;
+        intencion?: string;
+        silent?: boolean;
+      } = {}
+    ) => {
       const nextPage = opts.page ?? page;
       const nextSearch = opts.search ?? search;
       const nextEstado = opts.estado ?? estado;
-      const nextTemperatura = opts.temperatura ?? temperatura;
-      const nextIntencion = opts.intencion ?? intencion;
-      const nextRequiereHumano = opts.requiereHumano ?? requiereHumano;
-      const nextDestacado = opts.destacado ?? destacado;
+      const nextTemp = opts.temperatura ?? temperatura;
+      const nextInt = opts.intencion ?? intencion;
 
       if (!opts.silent) setLoading(true);
 
@@ -375,26 +197,14 @@ export function ProspeccionClient({
           page: String(nextPage),
           pageSize: String(PAGE_SIZE),
         });
-
         if (nextSearch) params.set("search", nextSearch);
-        if (nextEstado && nextEstado !== "all") params.set("estado", nextEstado);
-        if (nextTemperatura && nextTemperatura !== "all") {
-          params.set("temperatura", nextTemperatura);
-        }
-        if (nextIntencion && nextIntencion !== "all") {
-          params.set("intencion", nextIntencion);
-        }
-        if (nextRequiereHumano === "true") {
-          params.set("requiereHumano", "true");
-        }
-        if (nextDestacado === "true") {
-          params.set("destacado", "true");
-        }
+        if (nextEstado !== "all") params.set("estado", nextEstado);
+        if (nextTemp !== "all") params.set("temperatura", nextTemp);
+        if (nextInt !== "all") params.set("intencion", nextInt);
 
-        const [listRes, kpiRes, channelRes] = await Promise.all([
+        const [listRes, kpiRes] = await Promise.all([
           fetch(withBasePath(`/api/prospeccion?${params}`)),
           fetch(withBasePath("/api/prospeccion/kpis")),
-          fetch(withBasePath("/api/prospeccion/canal")),
         ]);
 
         if (listRes.ok) {
@@ -403,19 +213,13 @@ export function ProspeccionClient({
           setTotalFiltered(data.total || 0);
           setTotalGlobal(data.totalGlobal || 0);
         }
-
-        if (kpiRes.ok) {
-          setKpis(await kpiRes.json());
-        }
-        if (channelRes.ok) {
-          setChannelStatus(await channelRes.json());
-        }
-        setLastSyncAt(new Date());
+        if (kpiRes.ok) setKpis(await kpiRes.json());
+        setLastSync(new Date());
       } finally {
         if (!opts.silent) setLoading(false);
       }
     },
-    [destacado, estado, intencion, page, requiereHumano, search, temperatura]
+    [estado, intencion, page, search, temperatura]
   );
 
   useEffect(() => {
@@ -426,165 +230,72 @@ export function ProspeccionClient({
   function handleSearch(value: string) {
     setSearch(value);
     setPage(0);
-
-    if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
       void load({ page: 0, search: value });
     }, 350);
   }
 
-  function handleEstadoChange(value: string | null) {
+  function handleFilter(field: "estado" | "temperatura" | "intencion", value: string | null) {
     const next = value ?? "all";
-    setEstado(next);
     setPage(0);
-    void load({ page: 0, estado: next });
-  }
-
-  function handleTemperaturaChange(value: string | null) {
-    const next = value ?? "all";
-    setTemperatura(next);
-    setPage(0);
-    void load({ page: 0, temperatura: next });
-  }
-
-  function handleIntencionChange(value: string | null) {
-    const next = value ?? "all";
-    setIntencion(next);
-    setPage(0);
-    void load({ page: 0, intencion: next });
-  }
-
-  function handleRequiereHumanoChange(value: string | null) {
-    const next = value ?? "all";
-    setRequiereHumano(next);
-    setPage(0);
-    void load({ page: 0, requiereHumano: next });
-  }
-
-  function handleDestacadoChange(value: string | null) {
-    const next = value ?? "all";
-    setDestacado(next);
-    setPage(0);
-    void load({ page: 0, destacado: next });
-  }
-
-  function goToPage(nextPage: number) {
-    setPage(nextPage);
-    void load({ page: nextPage });
-  }
-
-  async function analyzeAll() {
-    setAnalyzingAll(true);
-    try {
-      const res = await fetch(withBasePath("/api/prospeccion/analyze"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      const data = await res.json();
-      toast.success(
-        `Analizados: ${data.analizados ?? 0}${
-          data.mensaje ? ` (${data.mensaje})` : ""
-        }`
-      );
-      await load();
-    } catch {
-      toast.error("No se pudo correr el analisis.");
-    } finally {
-      setAnalyzingAll(false);
+    if (field === "estado") {
+      setEstado(next);
+      void load({ page: 0, estado: next });
+    }
+    if (field === "temperatura") {
+      setTemperatura(next);
+      void load({ page: 0, temperatura: next });
+    }
+    if (field === "intencion") {
+      setIntencion(next);
+      void load({ page: 0, intencion: next });
     }
   }
 
+  function goToPage(n: number) {
+    setPage(n);
+    void load({ page: n });
+  }
+
   const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-  const topOpportunities = [...items]
-    .filter(
-      (item) =>
-        item.destacado ||
-        item.requiereHumano ||
-        item.temperatura === "caliente" ||
-        item.oportunidadScore >= 7
-    )
-    .sort((a, b) => {
-      const destacadoDelta = Number(b.destacado) - Number(a.destacado);
-      if (destacadoDelta) return destacadoDelta;
-      return b.oportunidadScore - a.oportunidadScore;
-    })
-    .slice(0, 4);
+  const isFiltered =
+    Boolean(search) ||
+    estado !== "all" ||
+    temperatura !== "all" ||
+    intencion !== "all";
 
   return (
-    <div className="space-y-6">
-      <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-slate-950 text-white shadow-2xl shadow-slate-900/10 dark:border-white/10">
-        <div className="relative p-6 md:p-8">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(45,212,191,0.22),transparent_32%),radial-gradient(circle_at_88%_14%,rgba(251,191,36,0.18),transparent_28%),linear-gradient(135deg,#020617_0%,#0f172a_58%,#111827_100%)]" />
-          <div className="relative flex flex-wrap items-start justify-between gap-5">
-            <div className="max-w-3xl">
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <Badge className="border-emerald-300/30 bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/15">
-                  <Signal className="mr-1.5 h-3 w-3" />
-                  Live cada {POLL_INTERVAL_MS / 1000}s
-                </Badge>
-                <Badge variant="outline" className="border-white/20 text-white">
-                  {channelStatus?.channel ?? "YCloud + Chatwoot"}
-                </Badge>
-                <Badge variant="outline" className="border-white/20 text-white">
-                  {channelStatus?.n8nWebhookConfigured ? "n8n conectado" : "n8n pendiente"}
-                </Badge>
-                <Badge variant="outline" className="border-white/20 text-white">
-                  {channelStatus?.whatsappNumber || "numero por YCloud"}
-                </Badge>
-              </div>
-              <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                Prospeccion diaria, sin perder conversaciones
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">
-                Primero ves que hacer hoy. Despues revisas leads, pipeline y patrones.
-                El CRM mide; Chatwoot conversa; YCloud entrega WhatsApp.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-3 text-xs text-slate-300">
-                <span>Ultima sync: {lastSyncAt ? format(lastSyncAt, "HH:mm:ss") : "inicial"}</span>
-                {channelStatus?.lastMessage ? (
-                  <span>
-                    Ultimo mensaje {channelStatus.lastMessage.direccion} de {channelStatus.lastMessage.telefono}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button size="sm" onClick={() => setShowNewProspect(true)} className="bg-white text-slate-950 hover:bg-slate-200">
-                <PlusSquare className="mr-1.5 h-3.5 w-3.5" />
-                Nuevo lead
-              </Button>
-              <Button variant="outline" size="sm" onClick={analyzeAll} disabled={analyzingAll} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">
-                <Zap className="mr-1.5 h-3.5 w-3.5" />
-                {analyzingAll ? "Analizando..." : "Analizar todo"}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => void load()} className="text-white hover:bg-white/10 hover:text-white">
-                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                Actualizar
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative mt-8 grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-              <p className="text-3xl font-black">{kpis.contactosHoy}</p>
-              <p className="mt-1 text-xs text-slate-300">contactados hoy</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-              <p className="text-3xl font-black">{kpis.respuestasHoy}</p>
-              <p className="mt-1 text-xs text-slate-300">respondieron hoy</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-              <p className="text-3xl font-black">{kpis.tasa}%</p>
-              <p className="mt-1 text-xs text-slate-300">tasa de respuesta</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] p-4">
-              <p className="text-3xl font-black">{kpis.oportunidadesAbiertas}</p>
-              <p className="mt-1 text-xs text-slate-300">pipeline abierto</p>
-            </div>
-          </div>
+    <div className="space-y-5">
+      {/* Header minimalista */}
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b pb-4">
+        <div>
+          <h1 className="text-2xl font-black tracking-tight">Prospección</h1>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {totalGlobal} prospectos
+            {lastSync ? ` · sync ${format(lastSync, "HH:mm:ss")}` : ""}
+          </p>
         </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => load()}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Actualizar
+          </Button>
+          <Button size="sm" onClick={() => setShowNewProspect(true)}>
+            <PlusSquare className="mr-1.5 h-3.5 w-3.5" />
+            Nuevo lead
+          </Button>
+        </div>
+      </header>
+
+      {/* KPIs en una sola fila */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6">
+        <StatPill label="Hoy" value={kpis.contactosHoy} />
+        <StatPill label="Respuestas" value={kpis.respuestasHoy} />
+        <StatPill label="Tasa" value={`${kpis.tasa}%`} />
+        <StatPill label="Pipeline" value={kpis.oportunidadesAbiertas} />
+        <StatPill label="Calientes" value={kpis.tibios} />
+        <StatPill label="Atención" value={kpis.requiereHumano} />
       </div>
 
       <NuevoProspectoDialog
@@ -593,187 +304,162 @@ export function ProspeccionClient({
         onCreated={() => {
           setShowNewProspect(false);
           void load();
-          setPipelineRefreshToken((prev) => prev + 1);
+          setPipelineToken((p) => p + 1);
         }}
       />
 
-      <DailyCommandCenter
-        kpis={kpis}
-        topOpportunities={topOpportunities}
-        channelStatus={channelStatus}
-        lastSyncAt={lastSyncAt}
-        onEdit={setEditing}
-        onRefresh={() => void load()}
-      />
-
-      <KpiCards kpis={kpis} />
-      {kpis.serie.some((row) => row.contactos > 0) ? (
-        <KpiChart serie={kpis.serie} />
-      ) : null}
-
-      <Tabs defaultValue="leads">
-        <TabsList className="grid w-full grid-cols-4 md:grid-cols-9">
+      {/* 5 tabs limpios */}
+      <Tabs defaultValue="inbox">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="inbox">
+            <Inbox className="mr-1.5 h-3.5 w-3.5" />
+            Inbox
+          </TabsTrigger>
           <TabsTrigger value="leads">
             <Target className="mr-1.5 h-3.5 w-3.5" />
             Leads
-          </TabsTrigger>
-          <TabsTrigger value="chatwoot">
-            <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-            Chatwoot
-          </TabsTrigger>
-          <TabsTrigger value="cola">
-            <Zap className="mr-1.5 h-3.5 w-3.5" />
-            Cola
-          </TabsTrigger>
-          <TabsTrigger value="tareas">
-            <ListTodo className="mr-1.5 h-3.5 w-3.5" />
-            Tareas
           </TabsTrigger>
           <TabsTrigger value="pipeline">
             <KanbanSquare className="mr-1.5 h-3.5 w-3.5" />
             Pipeline
           </TabsTrigger>
-          <TabsTrigger value="analytics">
-            <BarChart2 className="mr-1.5 h-3.5 w-3.5" />
-            Analytics
+          <TabsTrigger value="hoy">
+            <ListChecks className="mr-1.5 h-3.5 w-3.5" />
+            Hoy
           </TabsTrigger>
-          <TabsTrigger value="agenda">
-            <Calendar className="mr-1.5 h-3.5 w-3.5" />
-            Agenda
-          </TabsTrigger>
-          <TabsTrigger value="seguimiento">
-            <Activity className="mr-1.5 h-3.5 w-3.5" />
-            Seguimiento
-          </TabsTrigger>
-          <TabsTrigger value="sync">
-            <Signal className="mr-1.5 h-3.5 w-3.5" />
-            Sync
+          <TabsTrigger value="sistema">
+            <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+            Sistema
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="leads" className="mt-4 space-y-4">
-          <div className="flex flex-wrap gap-3">
-            <div className="relative min-w-[260px] flex-1">
+        {/* INBOX — Chatwoot nativo */}
+        <TabsContent value="inbox" className="mt-4">
+          <ChatwootInbox />
+        </TabsContent>
+
+        {/* LEADS — tabla principal con filtros */}
+        <TabsContent value="leads" className="mt-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <div className="relative min-w-[240px] flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
-                onChange={(event) => handleSearch(event.target.value)}
-                placeholder="Buscar por telefono, negocio o nombre..."
+                onChange={(e) => handleSearch(e.target.value)}
+                placeholder="Buscar por teléfono, negocio o nombre..."
                 className="pl-9"
               />
             </div>
 
-            <Select value={estado} onValueChange={handleEstadoChange}>
-              <SelectTrigger className="w-[220px]">
-                <SelectValue placeholder="Todos los estados" />
+            <Select value={estado} onValueChange={(v) => handleFilter("estado", v)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los estados</SelectItem>
-                {ESTADO_ORDER.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {ESTADO_LABEL[value]}
+                {ESTADO_ORDER.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {ESTADO_LABEL[v]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            <Select value={temperatura} onValueChange={handleTemperaturaChange}>
-              <SelectTrigger className="w-[170px]">
+            <Select value={temperatura} onValueChange={(v) => handleFilter("temperatura", v)}>
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Temperatura" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Toda temperatura</SelectItem>
-                {TEMPERATURA_ORDER.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {TEMPERATURA_LABEL[value]}
+                {TEMPERATURA_ORDER.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {TEMPERATURA_LABEL[v]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
-            <Select value={intencion} onValueChange={handleIntencionChange}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Intencion" />
+            <Select value={intencion} onValueChange={(v) => handleFilter("intencion", v)}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Intención" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Toda intencion</SelectItem>
-                {INTENCION_ORDER.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {INTENCION_LABEL[value]}
+                <SelectItem value="all">Toda intención</SelectItem>
+                {INTENCION_ORDER.map((v) => (
+                  <SelectItem key={v} value={v}>
+                    {INTENCION_LABEL[v]}
                   </SelectItem>
                 ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={requiereHumano} onValueChange={handleRequiereHumanoChange}>
-              <SelectTrigger className="w-[175px]">
-                <SelectValue placeholder="Humano" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="true">Requiere humano</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={destacado} onValueChange={handleDestacadoChange}>
-              <SelectTrigger className="w-[155px]">
-                <SelectValue placeholder="Destacado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="true">Destacados</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          <p className="text-sm text-muted-foreground">
-            {search ||
-            estado !== "all" ||
-            temperatura !== "all" ||
-            intencion !== "all" ||
-            requiereHumano !== "all" ||
-            destacado !== "all"
-              ? `${totalFiltered} resultado${totalFiltered !== 1 ? "s" : ""}`
-              : `${totalGlobal} prospectos`}
-            {totalPages > 1 ? ` - pagina ${page + 1} de ${totalPages}` : ""}
-          </p>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {isFiltered
+                ? `${totalFiltered} resultado${totalFiltered !== 1 ? "s" : ""}`
+                : `${totalGlobal} prospectos`}
+              {totalPages > 1 ? ` · página ${page + 1} de ${totalPages}` : ""}
+            </span>
+            {isFiltered && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 text-xs"
+                onClick={() => {
+                  setSearch("");
+                  setEstado("all");
+                  setTemperatura("all");
+                  setIntencion("all");
+                  setPage(0);
+                  void load({
+                    page: 0,
+                    search: "",
+                    estado: "all",
+                    temperatura: "all",
+                    intencion: "all",
+                  });
+                }}
+              >
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
 
           <ProspectoTable
             items={items}
             onEdit={setEditing}
             onRefresh={() => void load()}
             onDelete={(id) => {
-              setItems((prev) => prev.filter((item) => item.id !== id));
-              setPipelineRefreshToken((prev) => prev + 1);
+              setItems((prev) => prev.filter((i) => i.id !== id));
+              setPipelineToken((p) => p + 1);
             }}
-            onEstadoChange={(id, nextEstado) => {
+            onEstadoChange={(id, next) => {
               setItems((prev) =>
-                prev.map((item) =>
-                  item.id === id ? { ...item, estado: nextEstado } : item
-                )
+                prev.map((i) => (i.id === id ? { ...i, estado: next } : i))
               );
-              setPipelineRefreshToken((prev) => prev + 1);
+              setPipelineToken((p) => p + 1);
             }}
             loading={loading}
           />
 
-          {totalPages > 1 ? (
+          {totalPages > 1 && (
             <div className="flex items-center justify-between">
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 onClick={() => goToPage(page - 1)}
                 disabled={page === 0}
               >
                 <ChevronLeft className="mr-1 h-4 w-4" />
                 Anterior
               </Button>
-              <div className="text-sm text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {page + 1} / {totalPages}
-              </div>
+              </span>
               <Button
-                variant="outline"
                 size="sm"
+                variant="outline"
                 onClick={() => goToPage(page + 1)}
                 disabled={page >= totalPages - 1}
               >
@@ -781,56 +467,65 @@ export function ProspeccionClient({
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </div>
-          ) : null}
+          )}
         </TabsContent>
 
-        <TabsContent value="chatwoot" className="mt-4">
-          <ChatwootInbox />
-        </TabsContent>
-
-        <TabsContent value="cola" className="mt-4">
-          <ColaDiariaPanel />
-        </TabsContent>
-
-        <TabsContent value="tareas" className="mt-4">
-          <TareasDelDiaPanel />
-        </TabsContent>
-
-        <TabsContent value="pipeline" className="mt-4 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold">Pipeline Kanban</h2>
-              <p className="text-xs text-muted-foreground">
-                Arrastra cada lead segun el momento comercial en el que esta.
-              </p>
-            </div>
+        {/* PIPELINE */}
+        <TabsContent value="pipeline" className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              Arrastrá cada lead según el momento comercial.
+            </p>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setPipelineRefreshToken((prev) => prev + 1)}
+              onClick={() => setPipelineToken((p) => p + 1)}
             >
               <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-              Refrescar tablero
+              Refrescar
             </Button>
           </div>
-
-          <ProspectingKanbanBoard compact refreshToken={pipelineRefreshToken} />
+          <ProspectingKanbanBoard compact refreshToken={pipelineToken} />
         </TabsContent>
 
-        <TabsContent value="agenda" className="mt-4">
-          <AgendadosView onEdit={setEditing} />
+        {/* HOY — Cola + Tareas + Agenda + Seguimiento */}
+        <TabsContent value="hoy" className="mt-4">
+          <Tabs defaultValue="cola">
+            <TabsList className="mb-3 grid w-full grid-cols-4">
+              <TabsTrigger value="cola">Cola priorizada</TabsTrigger>
+              <TabsTrigger value="tareas">Tareas</TabsTrigger>
+              <TabsTrigger value="agenda">Agenda</TabsTrigger>
+              <TabsTrigger value="seguimiento">Seguimiento</TabsTrigger>
+            </TabsList>
+            <TabsContent value="cola">
+              <ColaDiariaPanel />
+            </TabsContent>
+            <TabsContent value="tareas">
+              <TareasDelDiaPanel />
+            </TabsContent>
+            <TabsContent value="agenda">
+              <AgendadosView onEdit={setEditing} />
+            </TabsContent>
+            <TabsContent value="seguimiento">
+              <SeguimientoPanel />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
-        <TabsContent value="analytics" className="mt-4">
-          <AnalyticsPanel />
-        </TabsContent>
-
-        <TabsContent value="seguimiento" className="mt-4">
-          <SeguimientoPanel />
-        </TabsContent>
-
-        <TabsContent value="sync" className="mt-4">
-          <SyncStatusPanel />
+        {/* SISTEMA — Analytics + Sync */}
+        <TabsContent value="sistema" className="mt-4">
+          <Tabs defaultValue="analytics">
+            <TabsList className="mb-3 grid w-full grid-cols-2">
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+              <TabsTrigger value="sync">Conexiones</TabsTrigger>
+            </TabsList>
+            <TabsContent value="analytics">
+              <AnalyticsPanel />
+            </TabsContent>
+            <TabsContent value="sync">
+              <SyncStatusPanel />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
 
@@ -839,7 +534,7 @@ export function ProspeccionClient({
         onClose={() => setEditing(null)}
         onSaved={() => {
           void load();
-          setPipelineRefreshToken((prev) => prev + 1);
+          setPipelineToken((p) => p + 1);
         }}
       />
     </div>
