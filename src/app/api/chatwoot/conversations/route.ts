@@ -134,16 +134,13 @@ export async function GET(req: NextRequest) {
     if (phoneDigitsList.length > 0) {
       try {
         const supabase = getSupabase();
-        // Use ilike OR filter — same pattern as /api/prospeccion search
-        // (Postgres' .in() with literal + got tricky; ilike just works).
-        const orFilter = phoneDigitsList
-          .map((p) => `telefono.ilike.%${p}%`)
-          .join(",");
+        // .in() with both phone variants (with and without "+") is the
+        // most reliable approach — verified in the live simulation debug.
+        const variants = phoneDigitsList.flatMap((p) => [p, `+${p}`]);
         const { data: prospectos, error: crmErr } = await supabase
           .from("prospectos")
           .select("telefono, oportunidad_score, temperatura, estado")
-          .or(orFilter)
-          .limit(phoneDigitsList.length * 2);
+          .in("telefono", variants);
         if (crmErr) {
           console.warn("[chatwoot/conversations] CRM lookup error:", crmErr.message);
         }
