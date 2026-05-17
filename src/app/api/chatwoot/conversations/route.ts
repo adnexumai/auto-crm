@@ -194,6 +194,9 @@ export async function GET(req: NextRequest) {
         crmMatchedCount: crmByPhone.size,
         firstPhones: phoneDigitsList.slice(0, 3),
         firstMatched: Array.from(crmByPhone.entries()).slice(0, 3),
+        // Inspect raw payload sender data
+        firstPayloadSender: payload[0]?.meta?.sender,
+        firstPayloadMetaKeys: payload[0]?.meta ? Object.keys(payload[0].meta) : [],
       },
     });
   } catch (err) {
