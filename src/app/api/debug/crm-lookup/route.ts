@@ -99,5 +99,42 @@ export async function GET(req: NextRequest) {
     };
   }
 
+  // Test 8: simulate the EXACT same code path as /api/chatwoot/conversations
+  // Fetch live Chatwoot list, then run the same lookup
+  {
+    try {
+      const cwUrl = `${process.env.CHATWOOT_BASE_URL}/api/v1/accounts/${process.env.CHATWOOT_ACCOUNT_ID}/conversations?status=open&assignee_type=me&page=1`;
+      const cwRes = await fetch(cwUrl, {
+        headers: { api_access_token: process.env.CHATWOOT_API_TOKEN || "" },
+      });
+      const cwBody = await cwRes.json();
+      const payload = cwBody?.data?.payload || [];
+      const livePhones = Array.from(
+        new Set(
+          payload
+            .map((c: { meta?: { sender?: { phone_number?: string } } }) =>
+              (c.meta?.sender?.phone_number || "").replace(/[^\d]/g, "")
+            )
+            .filter((p: string) => p.length > 0)
+        )
+      );
+      const variants = (livePhones as string[]).flatMap((p) => [p, `+${p}`]);
+      const { data: r1 } = await supabase
+        .from("prospectos")
+        .select("telefono, oportunidad_score")
+        .in("telefono", variants);
+      results.live_simulation = {
+        chatwootPhonesCount: livePhones.length,
+        variantsCount: variants.length,
+        livePhonesSample: (livePhones as string[]).slice(0, 5),
+        variantsSample: variants.slice(0, 6),
+        matched: r1?.length ?? 0,
+        matchedData: r1,
+      };
+    } catch (e) {
+      results.live_simulation = { error: String(e) };
+    }
+  }
+
   return NextResponse.json(results);
 }
