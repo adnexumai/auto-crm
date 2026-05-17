@@ -145,10 +145,15 @@ function ProspectCard({
     prospect.temperatura ||
     "Frio";
 
-  // Highlight cards that are urgent: hot leads or those sitting too long
-  const lastContactDate = new Date(prospect.ultimoContacto);
-  const daysSinceContact =
-    (Date.now() - lastContactDate.getTime()) / (1000 * 60 * 60 * 24);
+  // Safe date parsing — backend can send null/empty strings
+  const lastContactDate = prospect.ultimoContacto
+    ? new Date(prospect.ultimoContacto)
+    : null;
+  const lastContactValid =
+    lastContactDate !== null && !isNaN(lastContactDate.getTime());
+  const daysSinceContact = lastContactValid
+    ? (Date.now() - lastContactDate.getTime()) / (1000 * 60 * 60 * 24)
+    : 0;
   const isStale = daysSinceContact > 3 && prospect.estado === "respondio";
   const isHot =
     prospect.temperatura === "caliente" || prospect.oportunidadScore >= 7;
@@ -236,10 +241,12 @@ function ProspectCard({
 
           <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
             <span>
-              {formatDistanceToNow(new Date(prospect.ultimoContacto), {
-                addSuffix: true,
-                locale: es,
-              })}
+              {lastContactValid
+                ? formatDistanceToNow(lastContactDate, {
+                    addSuffix: true,
+                    locale: es,
+                  })
+                : "sin actividad"}
             </span>
             <span>{prospect.mensajesEnviados} msgs</span>
           </div>
